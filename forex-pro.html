@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="ForexPro"/>
+  <meta name="theme-color" content="#0A0E1A"/>
+  <title>ForexPro</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230A0E1A'/%3E%3Ctext x='90' y='115' font-size='80' text-anchor='middle' font-family='sans-serif' fill='%234ECDC4'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E"/>
+  <style>
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html,body { margin:0; padding:0; background:#0A0E1A; overscroll-behavior:none; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    input,select,textarea,button { font-family:inherit; }
+    #root { padding-bottom:env(safe-area-inset-bottom); }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; }
+    input[type=number] { -moz-appearance:textfield; }
+    * { -webkit-overflow-scrolling:touch; touch-action:manipulation; }
+    #loading { position:fixed;inset:0;background:#0A0E1A;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;font-family:sans-serif; }
+    #loading .logo { font-size:28px;font-weight:800;color:#E8ECF4;letter-spacing:-1px; }
+    #loading .accent { color:#4ECDC4; }
+    #loading .sub { font-size:13px;color:#8892A4;margin-top:8px; }
+    #loading .spinner { width:32px;height:32px;border:3px solid rgba(78,205,196,0.2);border-top-color:#4ECDC4;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:20px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="logo">Forex<span class="accent">Pro</span></div>
+    <div class="sub">Loading your trading app...</div>
+  </div>
+  <div id="root"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef } = React;
+
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const SESSIONS = [
+  { name:"Tokyo",    open:0,  close:9,  color:"#FF6B35", emoji:"🗼" },
+  { name:"London",   open:8,  close:17, color:"#4ECDC4", emoji:"🎡" },
+  { name:"New York", open:13, close:22, color:"#45B7D1", emoji:"🗽" },
+];
+const INSTRUMENT_CATEGORIES = [
+  { label:"Forex",   emoji:"💱", items:["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD","NZD/USD","EUR/GBP","USD/CHF","EUR/JPY","GBP/JPY"] },
+  { label:"Metals",  emoji:"🥇", items:["XAU/USD","XAG/USD","XPT/USD"] },
+  { label:"Crypto",  emoji:"₿",  items:["BTC/USD","ETH/USD","SOL/USD","XRP/USD"] },
+  { label:"Indexes", emoji:"📊", items:["US30","US500","NAS100","UK100","GER40"] },
+];
+const ALL_PAIRS = INSTRUMENT_CATEGORIES.flatMap(c => c.items);
+const LOT_SIZES = [
+  { label:"Micro (0.01)", value:0.01, pipValue:0.1 },
+  { label:"Mini (0.1)",   value:0.1,  pipValue:1   },
+  { label:"Standard (1)", value:1.0,  pipValue:10  },
+];
+const RR_OPTIONS = ["1:1","1:2","1:3","1:4"];
+const TF_OPTIONS = ["1m","5m","15m","1h","4h","1d"];
+const ECONOMIC_EVENTS = [
+  { time:"08:30", impact:"high",   title:"USD Non-Farm Payrolls",  currency:"USD" },
+  { time:"10:00", impact:"medium", title:"EUR CPI Flash Estimate", currency:"EUR" },
+  { time:"13:30", impact:"high",   title:"GBP Bank Rate Decision", currency:"GBP" },
+  { time:"15:00", impact:"low",    title:"JPY Tankan Survey",      currency:"JPY" },
+  { time:"17:00", impact:"medium", title:"USD ISM Manufacturing",  currency:"USD" },
+  { time:"20:00", impact:"high",   title:"USD FOMC Minutes",       currency:"USD" },
+];
+const ONBOARDING_STEPS = [
+  { id:"balance",   label:"Set your account balance in Planner" },
+  { id:"watchlist", label:"Add instruments to your watchlist"   },
+  { id:"session",   label:"Choose your trading sessions"        },
+  { id:"plan",      label:"Calculate your first trading plan"   },
+  { id:"trade",     label:"Log your first trade in Journal"     },
+];
+const BASE_PRICES = {
+  "EUR/USD":1.0821,"GBP/USD":1.2645,"USD/JPY":149.32,"AUD/USD":0.6512,
+  "USD/CAD":1.3641,"NZD/USD":0.6021,"EUR/GBP":0.8561,"USD/CHF":0.9012,
+  "EUR/JPY":161.45,"GBP/JPY":188.72,
+  "XAU/USD":2345.50,"XAG/USD":27.85,"XPT/USD":998.30,
+  "BTC/USD":67420,"ETH/USD":3512,"SOL/USD":178.40,"XRP/USD":0.5821,
+  "US30":38950,"US500":5180,"NAS100":18240,"UK100":8125,"GER40":18310,
+};
+
+// ─── Utility helpers ──────────────────────────────────────────────────────────
+function getDecimals(p) {
+  if (["BTC/USD","US30","NAS100","GER40","UK100","US500","ETH/USD","SOL/USD","XAU/USD","XPT/USD","XAG/USD"].includes(p)) return 2;
+  if (["USD/JPY","EUR/JPY","GBP/JPY"].includes(p)) return 3;
+  return 4;
+}
+function getPipSize(p) {
+  if (["USD/JPY","EUR/JPY","GBP/JPY"].includes(p)) return 0.01;
+  if (["BTC/USD","US30","NAS100","GER40","UK100","US500","ETH/USD","SOL/USD","XAU/USD","XAG/USD","XPT/USD"].includes(p)) return 1;
+  return 0.0001;
+}
+function getVolatility(p) {
+  if (p==="BTC/USD") return 0.008;
+  if (["ETH/USD","SOL/USD"].includes(p)) return 0.006;
+  if (["US30","NAS100","GER40"].includes(p)) return 0.003;
+  if (p==="XAU/USD") return 0.002;
+  if (["USD/JPY","EUR/JPY","GBP/JPY"].includes(p)) return 0.002;
+  return 0.0012;
+}
+function getSpread(p) {
+  if (["BTC/USD","ETH/USD"].includes(p)) return 10;
+  if (["US30","NAS100","GER40","UK100","US500"].includes(p)) return 1;
+  if (p==="XAU/USD") return 0.3;
+  return 0.0003;
+}
+function getUTCHour() { return new Date().getUTCHours()+new Date().getUTCMinutes()/60; }
+function isSessionActive(s) { const h=getUTCHour(); return s.open<s.close?h>=s.open&&h<s.close:h>=s.open||h<s.close; }
+function sessionCountdown(s) {
+  const now=getUTCHour(), target=isSessionActive(s)?s.close:s.open;
+  const diff=target>now?target-now:24-now+target;
+  const h=Math.floor(diff), m=Math.floor((diff-h)*60);
+  return isSessionActive(s)?`Closes in ${h}h ${m}m`:`Opens in ${h}h ${m}m`;
+}
+function loadLS(key, fallback) {
+  try { const v=localStorage.getItem(key); return v!=null?JSON.parse(v):fallback; } catch(e) { return fallback; }
+}
+function saveLS(key, val) { try { localStorage.setItem(key,JSON.stringify(val)); } catch(e) {} }
+
+// ─── MACD ─────────────────────────────────────────────────────────────────────
+function calcEMA(data, period) {
+  const k=2/(period+1); let prev=data[0];
+  return data.map((v,i)=>{ const e=i===0?data[0]:v*k+prev*(1-k); prev=e; return e; });
+}
+function calcMACD(candles) {
+  if (candles.length<35) return {macdLine:[],signalLine:[],histogram:[],signals:[]};
+  const closes=candles.map(c=>c.c);
+  const ema12=calcEMA(closes,12), ema26=calcEMA(closes,26);
+  const macdLine=ema12.map((v,i)=>v-ema26[i]);
+  const signalLine=calcEMA(macdLine,9);
+  const histogram=macdLine.map((v,i)=>v-signalLine[i]);
+  const signals=[];
+  for (let i=1;i<macdLine.length;i++) {
+    const pc=macdLine[i-1]-signalLine[i-1], cc=macdLine[i]-signalLine[i];
+    if (pc<0&&cc>=0) signals.push({i,type:"buy"});
+    else if (pc>0&&cc<=0) signals.push({i,type:"sell"});
+  }
+  return {macdLine,signalLine,histogram,signals};
+}
+function getMACDStrength(histogram) {
+  if (!histogram.length) return "—";
+  const last=histogram[histogram.length-1];
+  if (isNaN(last)) return "—";
+  const max=Math.max(...histogram.filter(v=>!isNaN(v)).map(Math.abs))||1;
+  const r=Math.abs(last)/max;
+  if (r>0.6) return "Strong";
+  if (r>0.3) return "Medium";
+  return "Weak";
+}
+
+// ─── Multi-timeframe MACD ─────────────────────────────────────────────────────
+function getMTFSignals(candles) {
+  const tfs = [
+    { label:"15m", slice:20 },
+    { label:"1h",  slice:40 },
+    { label:"4h",  slice:60 },
+  ];
+  return tfs.map(tf => {
+    const subset=candles.slice(-tf.slice);
+    const macd=calcMACD(subset);
+    const last=macd.signals.length?macd.signals[macd.signals.length-1]:null;
+    const strength=getMACDStrength(macd.histogram);
+    const aligned=last&&(subset.length-last.i)<=5;
+    return { tf:tf.label, signal:aligned?last.type:null, strength };
+  });
+}
+
+// ─── Confluence ───────────────────────────────────────────────────────────────
+function getConfluence(pair, candles, prices) {
+  let score=0;
+  const macd=calcMACD(candles);
+  if (macd.signals.length) {
+    const last=macd.signals[macd.signals.length-1];
+    const recency=candles.length-last.i;
+    if (recency<=3) score+=3; else if (recency<=10) score+=2; else score+=1;
+  }
+  score+=SESSIONS.filter(s=>isSessionActive(s)).length;
+  const p=prices[pair]; if (p&&p.change!==0) score+=1;
+  const s=getMACDStrength(macd.histogram);
+  if (s==="Strong") score+=3; else if (s==="Medium") score+=2; else score+=1;
+  return Math.min(10,score);
+}
+function confluenceColor(score, C) {
+  if (score>=7) return C.accent;
+  if (score>=4) return C.warn;
+  return C.danger;
+}
+
+// ─── Trade grade ──────────────────────────────────────────────────────────────
+function gradeTrade(trade, calcResult) {
+  if (!trade||!calcResult) return null;
+  let pts=0;
+  if (trade.pair===calcResult.pair) pts++;
+  if (trade.type===calcResult.direction) pts++;
+  const pips=parseFloat(trade.pips||0);
+  const target=parseFloat(calcResult.pips||0);
+  if (pips>0&&target>0&&pips>=target*0.9) pts++;
+  if (pips>0) pts++;
+  if (pts>=4) return "A";
+  if (pts>=3) return "B";
+  return "C";
+}
+function gradeColor(grade) {
+  if (grade==="A") return "#26a69a";
+  if (grade==="B") return "#FF9800";
+  return "#ef5350";
+}
+
+// ─── Candle generation ────────────────────────────────────────────────────────
+function generateCandles(pair, count=80) {
+  const dec=getDecimals(pair), vol=getVolatility(pair), base=BASE_PRICES[pair]||1;
+  let close=base*(0.97+Math.random()*0.06);
+  const candles=[], now=Date.now();
+  for (let i=count;i>=0;i--) {
+    const move=close*vol*(Math.random()*2-1), open=close;
+    close=Math.max(base*0.85,open+move);
+    const range=Math.abs(move)*1.5+base*vol*0.3;
+    candles.push({t:now-i*5*60*1000,
+      o:+open.toFixed(dec),h:+(Math.max(open,close)+range*Math.random()).toFixed(dec),
+      l:+(Math.min(open,close)-range*Math.random()).toFixed(dec),c:+close.toFixed(dec)});
+  }
+  return candles;
+}
+const CANDLE_HISTORY={};
+ALL_PAIRS.forEach(p=>{ CANDLE_HISTORY[p]=generateCandles(p,80); });
+
+// ─── TapButton — native-feel press feedback ───────────────────────────────────
+function TapButton({ onClick, style, children, disabled }) {
+  const [pressed,setPressed]=useState(false);
+  return (
+    <div
+      onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)}
+      onMouseLeave={()=>setPressed(false)}
+      onTouchStart={()=>setPressed(true)} onTouchEnd={()=>{ setPressed(false); if(!disabled&&onClick) onClick(); }}
+      onClick={disabled?undefined:onClick}
+      style={{...style, transform:pressed?"scale(0.96)":"scale(1)", opacity:pressed?0.85:1,
+        transition:"transform 0.08s, opacity 0.08s", cursor:disabled?"not-allowed":"pointer"}}>
+      {children}
+    </div>
+  );
+}
+
+// ─── PipCalculator quick sheet ────────────────────────────────────────────────
+function PipCalcSheet({ prices, C, S, onClose }) {
+  const [pcPair,setPcPair]=useState("EUR/USD");
+  const [pcEntry,setPcEntry]=useState("");
+  const [pcExit,setPcExit]=useState("");
+  const dec=getDecimals(pcPair);
+  const pipSize=getPipSize(pcPair);
+  const pips=pcEntry&&pcExit?((parseFloat(pcExit)-parseFloat(pcEntry))/pipSize).toFixed(1):"—";
+  return (
+    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
+      width:"100%",maxWidth:420,background:C.surface,borderTop:`1px solid ${C.border}`,
+      borderRadius:"20px 20px 0 0",padding:20,zIndex:500,boxShadow:"0 -8px 40px rgba(0,0,0,0.4)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontWeight:800,fontSize:16}}>⚡ Quick Pip Calculator</div>
+        <TapButton onClick={onClose} style={{background:"rgba(128,128,128,0.12)",border:"none",borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:14,cursor:"pointer"}}>✕</TapButton>
+      </div>
+      <select style={S.select} value={pcPair} onChange={e=>setPcPair(e.target.value)}>
+        {INSTRUMENT_CATEGORIES.map(cat=>(<optgroup key={cat.label} label={cat.label}>{cat.items.map(p=><option key={p} value={p}>{p}</option>)}</optgroup>))}
+      </select>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <input style={{...S.input,marginBottom:0,flex:1}} type="number" step="any" placeholder="Entry price"
+          value={pcEntry} onChange={e=>setPcEntry(e.target.value)}/>
+        <input style={{...S.input,marginBottom:0,flex:1}} type="number" step="any" placeholder="Exit price"
+          value={pcExit} onChange={e=>setPcExit(e.target.value)}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <TapButton onClick={()=>{const p=prices[pcPair]?.bid;if(p)setPcEntry(p.toFixed(dec));}}
+          style={{flex:1,padding:"8px",borderRadius:9,background:C.accentBg,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:11,fontWeight:700,textAlign:"center"}}>
+          Use Live as Entry
+        </TapButton>
+        <TapButton onClick={()=>{setPcEntry("");setPcExit("");}}
+          style={{padding:"8px 12px",borderRadius:9,background:"rgba(128,128,128,0.08)",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:700}}>
+          Clear
+        </TapButton>
+      </div>
+      <div style={{marginTop:14,background:C.accentBg,border:`1.5px solid ${C.accent}44`,borderRadius:12,padding:14,textAlign:"center"}}>
+        <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Pip Distance</div>
+        <div style={{fontSize:32,fontWeight:800,color:parseFloat(pips)>0?C.accent:parseFloat(pips)<0?C.danger:C.text}}>{pips}</div>
+        <div style={{fontSize:10,color:C.muted,marginTop:2}}>pips  ·  pip size: {pipSize}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Trade Detail Sheet ───────────────────────────────────────────────────────
+function TradeDetailSheet({ trade, calcResult, C, S, onClose }) {
+  if (!trade) return null;
+  const grade=gradeTrade(trade,calcResult);
+  const pips=parseFloat(trade.pips||0);
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:600,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)"}} onClick={onClose}/>
+      <div style={{position:"relative",background:C.surface,borderRadius:"22px 22px 0 0",padding:22,
+        boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",maxHeight:"75vh",overflowY:"auto"}}>
+        <div style={{width:36,height:4,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:20,fontWeight:800}}>{trade.pair}</div>
+            <div style={{fontSize:13,color:trade.type==="Buy"?C.accent:C.danger,fontWeight:700,marginTop:2}}>{trade.type==="Buy"?"▲ Buy":"▼ Sell"}</div>
+          </div>
+          {grade&&(
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:32,fontWeight:900,color:gradeColor(grade)}}>{grade}</div>
+              <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>Trade Grade</div>
+            </div>
+          )}
+        </div>
+        <div style={{background:C.accentBg,border:`1.5px solid ${C.accent}44`,borderRadius:12,padding:14,marginBottom:14}}>
+          {[["Result",`${pips>0?"+":""}${trade.pips} pips`,pips>0?C.accent:C.danger],
+            ["Date",trade.date,C.text],
+            trade.duration?["Duration",trade.duration,C.text]:null,
+            trade.note?["Notes",trade.note,C.muted]:null,
+          ].filter(Boolean).map(([label,val,color])=>(
+            <div key={label} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{fontSize:12,color:C.muted}}>{label}</span>
+              <span style={{fontSize:13,fontWeight:700,color}}>{val}</span>
+            </div>
+          ))}
+        </div>
+        {grade&&(
+          <div style={{background:gradeColor(grade)+"18",border:`1px solid ${gradeColor(grade)}44`,borderRadius:10,padding:12,fontSize:11,color:C.muted}}>
+            <strong style={{color:gradeColor(grade)}}>Grade {grade}</strong>
+            {grade==="A"?" — Excellent execution. You followed your plan closely."
+            :grade==="B"?" — Good trade. Minor deviations from plan."
+            :" — Review this trade. Consider sticking closer to your setup."}
+          </div>
+        )}
+        <TapButton onClick={onClose} style={{...S.btn(C.muted),marginTop:14,background:"rgba(128,128,128,0.12)",color:C.text}}>Close</TapButton>
+      </div>
+    </div>
+  );
+}
+
+// ─── CandleChart ──────────────────────────────────────────────────────────────
+function CandleChart({ pair, candles, currentPrice, calcResult, darkMode, C }) {
+  const svgRef=useRef(null);
+  const [tooltip,setTooltip]=useState(null);
+  const [crosshair,setCrosshair]=useState(null);
+  const [offset,setOffset]=useState(0);
+  const touchStartX=useRef(null);
+
+  const W=370,H=210,PL=8,PR=56,PT=10,PB=20;
+  const MH=88, MPT=8, MPB=16;
+  const cW=W-PL-PR, cH=H-PT-PB;
+
+  const windowSize=50;
+  const maxOffset=Math.max(0,candles.length-windowSize);
+  const startIdx=Math.max(0,candles.length-windowSize-offset);
+  const visible=candles.slice(startIdx,startIdx+windowSize);
+  const N=visible.length;
+  if (N===0) return null;
+
+  const allH=visible.map(c=>c.h), allL=visible.map(c=>c.l);
+  const maxP=Math.max(...allH), minP=Math.min(...allL);
+  const pad=(maxP-minP)*0.12||maxP*0.001;
+  const hi=maxP+pad, lo=minP-pad, range=hi-lo||1;
+  const xScale=i=>PL+(i/(N-1||1))*cW;
+  const yScale=p=>PT+cH-((p-lo)/range)*cH;
+  const candleW=Math.max(3,(cW/N)*0.65);
+  const dec=getDecimals(pair);
+
+  const fullMACD=calcMACD(candles);
+  const macdStart=candles.indexOf(visible[0]);
+  const macdSlice=fullMACD.macdLine.slice(macdStart,macdStart+N);
+  const sigSlice=fullMACD.signalLine.slice(macdStart,macdStart+N);
+  const histSlice=fullMACD.histogram.slice(macdStart,macdStart+N);
+  const visSignals=fullMACD.signals.filter(s=>s.i>=macdStart&&s.i<macdStart+N).map(s=>({...s,vi:s.i-macdStart}));
+  const lastSignal=visSignals.length?visSignals[visSignals.length-1]:null;
+  const mAllVals=[...macdSlice,...sigSlice].filter(v=>!isNaN(v));
+  const mMax=mAllVals.length?Math.max(...mAllVals.map(Math.abs))*1.4:1;
+  const mCH=MH-MPT-MPB, mMid=MPT+mCH/2;
+  const mY=v=>mMid-(v/mMax)*(mCH/2);
+  const mX=i=>PL+(i/(N-1||1))*cW;
+
+  const priceLabels=Array.from({length:4},(_,i)=>{
+    const p=lo+(range/3)*i; return {y:yScale(p),label:p.toFixed(dec)};
+  });
+
+  // TP/SL/Entry from plan
+  const hasLevels=calcResult&&calcResult.pair===pair&&calcResult.entryPrice;
+  const entryY=hasLevels?yScale(parseFloat(calcResult.entryPrice)):null;
+  const tpY=hasLevels&&calcResult.exitPrice?yScale(parseFloat(calcResult.exitPrice)):null;
+  const slY=hasLevels&&calcResult.stopLossPrice?yScale(parseFloat(calcResult.stopLossPrice)):null;
+
+  function handleMove(e) {
+    const rect=svgRef.current?.getBoundingClientRect(); if(!rect) return;
+    const isT=e.touches; const cx=isT?e.touches[0].clientX:e.clientX, cy=isT?e.touches[0].clientY:e.clientY;
+    const mx=cx-rect.left, my=cy-rect.top;
+    const idx=Math.round(((mx-PL)/cW)*(N-1));
+    if (idx>=0&&idx<N) {
+      const c=visible[idx]; setCrosshair({x:xScale(idx),y:my});
+      setTooltip({x:xScale(idx),y:Math.max(28,Math.min(my,H-55)),c,
+        time:new Date(c.t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
+        macd:macdSlice[idx],sig:sigSlice[idx],hist:histSlice[idx]});
+    }
+  }
+  function handleLeave(){setTooltip(null);setCrosshair(null);}
+
+  // Touch swipe for scrolling candles
+  function handleTouchStart(e){touchStartX.current=e.touches[0].clientX;}
+  function handleTouchMove(e){
+    if (touchStartX.current===null) return;
+    const dx=touchStartX.current-e.touches[0].clientX;
+    const candles_per_px=windowSize/cW;
+    const delta=Math.round(dx*candles_per_px);
+    setOffset(prev=>Math.max(0,Math.min(maxOffset,prev+delta)));
+    touchStartX.current=e.touches[0].clientX;
+  }
+  function handleTouchEnd(){touchStartX.current=null;}
+
+  const bull="#26a69a",bear="#ef5350",macdCol="#2196F3",sigCol="#FF9800";
+  const bg=darkMode?"#0D1421":"#FFFFFF";
+  const grid=darkMode?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)";
+  const textCol=darkMode?"#8892A4":"#999";
+  const strength=getMACDStrength(histSlice);
+
+  return (
+    <div style={{borderRadius:12,overflow:"hidden",background:bg,border:`1px solid ${C.border}`}}>
+      {/* Candle chart */}
+      <svg ref={svgRef} width={W} height={H}
+        style={{display:"block",cursor:"crosshair",width:"100%",height:"auto",touchAction:"none"}}
+        onMouseMove={handleMove} onMouseLeave={handleLeave}
+        onTouchStart={e=>{handleTouchStart(e);handleMove(e);}}
+        onTouchMove={e=>{handleTouchMove(e);handleMove(e);}}
+        onTouchEnd={handleTouchEnd}>
+
+        {priceLabels.map((pl,i)=>(
+          <line key={i} x1={PL} y1={pl.y} x2={W-PR} y2={pl.y} stroke={grid} strokeWidth={1}/>
+        ))}
+
+        {/* TP / SL / Entry */}
+        {tpY!==null&&tpY>=PT&&tpY<=H-PB&&(<g>
+          <line x1={PL} y1={tpY} x2={W-PR} y2={tpY} stroke={bull} strokeWidth={1.2} strokeDasharray="5,3"/>
+          <rect x={W-PR+2} y={tpY-8} width={PR-4} height={16} fill={bull} rx={3} opacity={0.92}/>
+          <text x={W-PR+PR/2} y={tpY+4} textAnchor="middle" fontSize={8} fontWeight="700" fill="#0D1421">TP</text>
+        </g>)}
+        {slY!==null&&slY>=PT&&slY<=H-PB&&(<g>
+          <line x1={PL} y1={slY} x2={W-PR} y2={slY} stroke={bear} strokeWidth={1.2} strokeDasharray="5,3"/>
+          <rect x={W-PR+2} y={slY-8} width={PR-4} height={16} fill={bear} rx={3} opacity={0.92}/>
+          <text x={W-PR+PR/2} y={slY+4} textAnchor="middle" fontSize={8} fontWeight="700" fill="#fff">SL</text>
+        </g>)}
+        {entryY!==null&&entryY>=PT&&entryY<=H-PB&&(<g>
+          <line x1={PL} y1={entryY} x2={W-PR} y2={entryY} stroke={C.warn} strokeWidth={1} strokeDasharray="3,3"/>
+          <rect x={W-PR+2} y={entryY-8} width={PR-4} height={16} fill={C.warn} rx={3} opacity={0.92}/>
+          <text x={W-PR+PR/2} y={entryY+4} textAnchor="middle" fontSize={7} fontWeight="700" fill="#0D1421">ENTRY</text>
+        </g>)}
+
+        {visible.map((c,i)=>{
+          const x=xScale(i),isBull=c.c>=c.o,col=isBull?bull:bear;
+          const bodyY=yScale(Math.max(c.o,c.c)),bodyH=Math.max(1,Math.abs(yScale(c.o)-yScale(c.c)));
+          return (<g key={i}>
+            <line x1={x} y1={yScale(c.h)} x2={x} y2={yScale(c.l)} stroke={col} strokeWidth={1}/>
+            <rect x={x-candleW/2} y={bodyY} width={candleW} height={bodyH} fill={isBull?bull:"none"} stroke={col} strokeWidth={isBull?0:1.2} rx={1}/>
+          </g>);
+        })}
+
+        {visSignals.map((sig,i)=>{
+          const x=xScale(sig.vi),c=visible[sig.vi]; if(!c) return null;
+          if (sig.type==="buy"){const ay=yScale(c.l)-18;return <g key={i}><polygon points={`${x},${ay+14} ${x-7},${ay} ${x+7},${ay}`} fill={bull} opacity={0.95}/><text x={x} y={ay-3} textAnchor="middle" fontSize={8} fontWeight="800" fill={bull}>BUY</text></g>;}
+          const ay=yScale(c.h)+18;return <g key={i}><polygon points={`${x},${ay-14} ${x-7},${ay} ${x+7},${ay}`} fill={bear} opacity={0.95}/><text x={x} y={ay+10} textAnchor="middle" fontSize={8} fontWeight="800" fill={bear}>SELL</text></g>;
+        })}
+
+        {currentPrice&&(<g>
+          <line x1={PL} y1={yScale(currentPrice)} x2={W-PR} y2={yScale(currentPrice)} stroke={C.accent} strokeWidth={1} strokeDasharray="4,3"/>
+          <rect x={W-PR+2} y={yScale(currentPrice)-9} width={PR-4} height={18} fill={C.accent} rx={3}/>
+          <text x={W-PR+PR/2} y={yScale(currentPrice)+4} textAnchor="middle" fontSize={9} fontWeight="700" fill="#0A0E1A">{currentPrice.toFixed(dec)}</text>
+        </g>)}
+
+        {priceLabels.map((pl,i)=>(<text key={i} x={W-PR+4} y={pl.y+4} fontSize={8} fill={textCol}>{pl.label}</text>))}
+
+        {crosshair&&(<>
+          <line x1={crosshair.x} y1={PT} x2={crosshair.x} y2={H-PB} stroke={darkMode?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.15)"} strokeWidth={1} strokeDasharray="3,3"/>
+          <line x1={PL} y1={crosshair.y} x2={W-PR} y2={crosshair.y} stroke={darkMode?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.15)"} strokeWidth={1} strokeDasharray="3,3"/>
+        </>)}
+
+        {tooltip&&(()=>{
+          const c=tooltip.c,isBull=c.c>=c.o,tx=Math.min(tooltip.x+8,W-PR-120);
+          const hasMCD=tooltip.macd!=null&&!isNaN(tooltip.macd);
+          return (<g>
+            <rect x={tx} y={tooltip.y-2} width={118} height={hasMCD?82:62} fill={darkMode?"#1A2340":"#F7FAFC"} stroke={C.border} rx={6} opacity={0.96}/>
+            <text x={tx+6} y={tooltip.y+13} fontSize={8.5} fill={textCol}>O:<tspan fill={C.text} fontWeight="600"> {c.o.toFixed(dec)}</tspan>{"  "}H:<tspan fill={bull} fontWeight="600"> {c.h.toFixed(dec)}</tspan></text>
+            <text x={tx+6} y={tooltip.y+26} fontSize={8.5} fill={textCol}>L:<tspan fill={bear} fontWeight="600"> {c.l.toFixed(dec)}</tspan>{"  "}C:<tspan fill={isBull?bull:bear} fontWeight="600"> {c.c.toFixed(dec)}</tspan></text>
+            <text x={tx+6} y={tooltip.y+39} fontSize={8} fill={textCol}>{tooltip.time}</text>
+            {hasMCD&&(<>
+              <text x={tx+6} y={tooltip.y+53} fontSize={8} fill={textCol}>MACD:<tspan fill={macdCol} fontWeight="600"> {tooltip.macd?.toFixed(5)}</tspan></text>
+              <text x={tx+6} y={tooltip.y+66} fontSize={8} fill={textCol}>Sig:<tspan fill={sigCol} fontWeight="600"> {tooltip.sig?.toFixed(5)}</tspan></text>
+            </>)}
+            <text x={tx+6} y={tooltip.y+(hasMCD?80:52)} fontSize={8} fill={isBull?bull:bear} fontWeight="700">{isBull?"▲ Bullish":"▼ Bearish"}</text>
+          </g>);
+        })()}
+
+        {[0,Math.floor(N/4),Math.floor(N/2),Math.floor(3*N/4),N-1].map(i=>{
+          if(i>=N) return null;
+          return <text key={i} x={xScale(i)} y={H-4} textAnchor="middle" fontSize={8} fill={textCol}>{new Date(visible[i].t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</text>;
+        })}
+      </svg>
+
+      {/* Swipe hint */}
+      {maxOffset>0&&(
+        <div style={{textAlign:"center",fontSize:9,color:textCol,padding:"2px 0",borderBottom:`1px solid ${grid}`}}>
+          ← swipe to scroll candles → ({candles.length - windowSize - offset > 0 ? `${candles.length - windowSize - offset} more` : "latest"})
+        </div>
+      )}
+
+      {/* MACD sub-chart */}
+      <div style={{borderTop:`1px solid ${grid}`,paddingTop:2}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,padding:"3px 8px 2px",flexWrap:"wrap"}}>
+          <span style={{fontSize:9,fontWeight:700,color:textCol}}>MACD (12,26,9)</span>
+          <span style={{fontSize:9,color:macdCol}}>● MACD</span>
+          <span style={{fontSize:9,color:sigCol}}>● Signal</span>
+          <span style={{fontSize:9,fontWeight:700,color:strength==="Strong"?C.accent:strength==="Medium"?C.warn:C.dim}}>Strength: {strength}</span>
+          {lastSignal&&(<span style={{marginLeft:"auto",fontSize:9,fontWeight:800,
+            color:lastSignal.type==="buy"?bull:bear,
+            background:lastSignal.type==="buy"?"rgba(38,166,154,0.15)":"rgba(239,83,80,0.15)",
+            padding:"1px 6px",borderRadius:6,border:`1px solid ${lastSignal.type==="buy"?bull:bear}`}}>
+            {lastSignal.type==="buy"?"▲ BUY":"▼ SELL"}
+          </span>)}
+        </div>
+        <svg width={W} height={MH} style={{display:"block",width:"100%",height:"auto"}}>
+          <line x1={PL} y1={mMid} x2={W-PR} y2={mMid} stroke={darkMode?"rgba(255,255,255,0.12)":"rgba(0,0,0,0.1)"} strokeWidth={1} strokeDasharray="2,3"/>
+          {histSlice.map((v,i)=>{if(isNaN(v)||v===0) return null; const bH=Math.abs(mY(v)-mMid),bY=v>=0?mMid-bH:mMid,bw=Math.max(2,(cW/N)*0.6); return <rect key={i} x={mX(i)-bw/2} y={bY} width={bw} height={Math.max(1,bH)} fill={v>=0?"rgba(38,166,154,0.5)":"rgba(239,83,80,0.5)"}/>;} )}
+          {macdSlice.length>1&&(()=>{ const pts=macdSlice.map((v,i)=>isNaN(v)?null:`${mX(i)},${mY(v)}`).filter(Boolean).join(" "); return <polyline points={pts} fill="none" stroke={macdCol} strokeWidth={1.5}/>; })()}
+          {sigSlice.length>1&&(()=>{ const pts=sigSlice.map((v,i)=>isNaN(v)?null:`${mX(i)},${mY(v)}`).filter(Boolean).join(" "); return <polyline points={pts} fill="none" stroke={sigCol} strokeWidth={1.5} strokeDasharray="3,2"/>; })()}
+          {visSignals.map((sig,i)=>{ const mv=macdSlice[sig.vi]; if(isNaN(mv)) return null; return <circle key={i} cx={mX(sig.vi)} cy={mY(mv)} r={4} fill={sig.type==="buy"?bull:bear} stroke={bg} strokeWidth={1.5}/>; })}
+          {macdSlice.length>0&&!isNaN(macdSlice[macdSlice.length-1])&&(
+            <text x={W-PR+4} y={mY(macdSlice[macdSlice.length-1])+4} fontSize={7} fill={macdCol}>{macdSlice[macdSlice.length-1].toFixed(4)}</text>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ─── Live price hook (Twelve Data API) ────────────────────────────────────────
+// ⚠️  Paste your free API key from twelvedata.com below:
+const TWELVE_DATA_API_KEY = "YOUR_API_KEY_HERE";
+
+// Map our pair names to Twelve Data symbols
+const TD_SYMBOL = {
+  "EUR/USD":"EUR/USD","GBP/USD":"GBP/USD","USD/JPY":"USD/JPY","AUD/USD":"AUD/USD",
+  "USD/CAD":"USD/CAD","NZD/USD":"NZD/USD","EUR/GBP":"EUR/GBP","USD/CHF":"USD/CHF",
+  "EUR/JPY":"EUR/JPY","GBP/JPY":"GBP/JPY",
+  "XAU/USD":"XAU/USD","XAG/USD":"XAG/USD","XPT/USD":"XPT/USD",
+  "BTC/USD":"BTC/USD","ETH/USD":"ETH/USD","SOL/USD":"SOL/USD","XRP/USD":"XRP/USD",
+  "US30":"US30/USD","US500":"SPX500/USD","NAS100":"NDX/USD",
+  "UK100":"UK100GBP","GER40":"GER40/EUR",
+};
+
+function useLivePrices() {
+  const [prices,setPrices]=useState(()=>{
+    const p={};
+    ALL_PAIRS.forEach(pair=>{ const dec=getDecimals(pair),base=BASE_PRICES[pair]||1; p[pair]={bid:base,ask:+(base+getSpread(pair)).toFixed(dec),change:0,decimals:dec}; });
+    return p;
+  });
+  const prevPrices=useRef({});
+  const candlesRef=useRef(CANDLE_HISTORY);
+  const usingLive=useRef(false);
+
+  // Fetch real prices from Twelve Data
+  async function fetchLivePrices() {
+    if (TWELVE_DATA_API_KEY==="YOUR_API_KEY_HERE") return; // skip if no key
+    try {
+      // Fetch in batches of 8 (free tier limit)
+      const batches=[
+        ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD","NZD/USD","EUR/GBP","USD/CHF"],
+        ["EUR/JPY","GBP/JPY","XAU/USD","XAG/USD","BTC/USD","ETH/USD","SOL/USD","XRP/USD"],
+        ["US30","US500","NAS100","UK100","GER40","XPT/USD"],
+      ];
+      for (const batch of batches) {
+        const symbols=batch.map(p=>TD_SYMBOL[p]||p).join(",");
+        const url=`https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbols)}&apikey=${TWELVE_DATA_API_KEY}`;
+        const res=await fetch(url);
+        if (!res.ok) continue;
+        const data=await res.json();
+        setPrices(prev=>{
+          const next={...prev};
+          batch.forEach(pair=>{
+            const sym=TD_SYMBOL[pair]||pair;
+            const entry=data[sym]||data[pair];
+            if (!entry||!entry.price) return;
+            const dec=getDecimals(pair);
+            const newBid=+parseFloat(entry.price).toFixed(dec);
+            const prevBid=prevPrices.current[pair]?.bid||newBid;
+            const change=newBid>prevBid?1:newBid<prevBid?-1:0;
+            next[pair]={bid:newBid,ask:+(newBid+getSpread(pair)).toFixed(dec),change,decimals:dec};
+            // update last candle with real price
+            const hist=candlesRef.current[pair];
+            if (hist&&hist.length>0){
+              const last={...hist[hist.length-1]};
+              last.c=newBid; last.h=Math.max(last.h,newBid); last.l=Math.min(last.l,newBid);
+              hist[hist.length-1]=last;
+            }
+          });
+          prevPrices.current={...next};
+          usingLive.current=true;
+          return next;
+        });
+        // small delay between batches to respect rate limits
+        await new Promise(r=>setTimeout(r,500));
+      }
+    } catch(e) {
+      console.warn("Twelve Data fetch failed, using simulation:", e);
+    }
+  }
+
+  // Simulation fallback (used when no API key or fetch fails)
+  function simulateTick() {
+    if (usingLive.current) return; // don't simulate if live data is working
+    setPrices(prev=>{
+      const next={...prev};
+      ALL_PAIRS.forEach(pair=>{
+        const vol=getVolatility(pair),dec=getDecimals(pair);
+        const delta=(Math.random()-0.5)*prev[pair].bid*vol*0.4;
+        const newBid=+((prev[pair].bid+delta).toFixed(dec));
+        next[pair]={bid:newBid,ask:+(newBid+getSpread(pair)).toFixed(dec),change:delta>0?1:-1,decimals:dec};
+        const hist=candlesRef.current[pair];
+        if (hist&&hist.length>0){ const last={...hist[hist.length-1]}; last.c=newBid;last.h=Math.max(last.h,newBid);last.l=Math.min(last.l,newBid); hist[hist.length-1]=last; }
+      });
+      return next;
+    });
+  }
+
+  useEffect(()=>{
+    // Fetch immediately on load
+    fetchLivePrices();
+    // Then fetch every 30 seconds (free tier: 800 calls/day)
+    const liveId=setInterval(fetchLivePrices, 30000);
+    // Simulate tick every 2s for smooth UI (only if no live data)
+    const simId=setInterval(simulateTick, 2000);
+    return ()=>{ clearInterval(liveId); clearInterval(simId); };
+  },[]);
+
+  return {prices,candlesRef,usingLive};
+}
+
+// ─── PIN Screen ───────────────────────────────────────────────────────────────
+function PinScreen({ onUnlock, darkMode, C }) {
+  const savedPin=loadLS("fpro_pin",null);
+  const [input,setInput]=useState("");
+  const [isSetup,setIsSetup]=useState(!savedPin);
+  const [confirm,setConfirm]=useState("");
+  const [stage,setStage]=useState("enter"); // enter | confirm
+  const [shake,setShake]=useState(false);
+  const [msg,setMsg]=useState(isSetup?"Create a 4-digit PIN":"Enter your PIN");
+
+  function handleDigit(d) {
+    if (isSetup) {
+      if (stage==="enter") {
+        const next=input+d;
+        setInput(next);
+        if (next.length===4){setConfirm(next);setInput("");setStage("confirm");setMsg("Confirm your PIN");}
+      } else {
+        const next=input+d;
+        setInput(next);
+        if (next.length===4){
+          if (next===confirm){saveLS("fpro_pin",next);onUnlock();}
+          else {setShake(true);setInput("");setMsg("PINs don't match. Try again.");setTimeout(()=>setShake(false),500);}
+        }
+      }
+    } else {
+      const next=input+d;
+      setInput(next);
+      if (next.length===4){
+        if (next===savedPin){onUnlock();}
+        else {setShake(true);setInput("");setMsg("Wrong PIN");setTimeout(()=>{setShake(false);setMsg("Enter your PIN");},600);}
+      }
+    }
+  }
+  function handleDel(){setInput(p=>p.slice(0,-1));}
+
+  return (
+    <div style={{position:"fixed",inset:0,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:900,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
+      <div style={{fontSize:28,marginBottom:8}}>🔐</div>
+      <div style={{fontSize:22,fontWeight:800,color:C.text,marginBottom:4}}>Forex<span style={{color:C.accent}}>Pro</span></div>
+      <div style={{fontSize:13,color:C.muted,marginBottom:28}}>{msg}</div>
+      <div style={{display:"flex",gap:14,marginBottom:32,animation:shake?"shake 0.4s":"none"}}>
+        {[0,1,2,3].map(i=>(
+          <div key={i} style={{width:16,height:16,borderRadius:"50%",background:i<input.length?C.accent:C.border,transition:"background 0.15s",boxShadow:i<input.length?`0 0 8px ${C.accent}88`:"none"}}/>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,width:240}}>
+        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>{
+          const handler = d===""?null:d==="⌫"?handleDel:()=>handleDigit(String(d));
+          return (
+            <div key={i}
+              onPointerDown={e=>{e.preventDefault();if(handler)handler();}}
+              style={{height:60,borderRadius:14,
+                background:d===""?"transparent":C.surface,
+                border:d===""?"none":`1px solid ${C.border}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:d==="⌫"?20:22,fontWeight:700,color:C.text,
+                opacity:d===""?0:1,
+                cursor:d===""?"default":"pointer",
+                userSelect:"none",WebkitUserSelect:"none",
+                touchAction:"manipulation"}}>
+              {d}
+            </div>
+          );
+        })}
+      </div>
+      {!isSetup&&(
+        <TapButton onClick={()=>{saveLS("fpro_pin",null);setIsSetup(true);setInput("");setMsg("Create a new PIN");}}
+          style={{marginTop:20,fontSize:11,color:C.dim,background:"none",border:"none",cursor:"pointer",padding:"4px 8px"}}>
+          Forgot PIN? Reset
+        </TapButton>
+      )}
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}`}</style>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function ForexPlannerApp() {
+  const {prices,candlesRef,usingLive}=useLivePrices();
+
+  const [locked,setLocked]=useState(true);
+  const [activeTab,setActiveTab]=useState("dashboard");
+  const [darkMode,setDarkMode]=useState(()=>loadLS("fpro_dark",true));
+  const [notification,setNotification]=useState(null);
+  const [time,setTime]=useState(new Date());
+  const [tick,setTick]=useState(0);
+  const [showPipCalc,setShowPipCalc]=useState(false);
+  const [tradeDetail,setTradeDetail]=useState(null);
+  const [exportText,setExportText]=useState("");
+
+  // Persisted state
+  const [checklist,setChecklist]=useState(()=>loadLS("fpro_checklist",{balance:false,watchlist:false,session:false,plan:false,trade:false}));
+  const [selectedSessions,setSelectedSessions]=useState(()=>loadLS("fpro_sessions",["London"]));
+  const [sessionAlerts,setSessionAlerts]=useState(()=>loadLS("fpro_salerts",{Tokyo:false,London:false,"New York":false}));
+  const [watchlist,setWatchlist]=useState(()=>loadLS("fpro_watchlist",["EUR/USD","GBP/USD"]));
+  const [trades,setTrades]=useState(()=>loadLS("fpro_trades",[]));
+  const [calcResult,setCalcResult]=useState(()=>loadLS("fpro_plan",null));
+  const [balance,setBalance]=useState(()=>loadLS("fpro_balance",""));
+  const [goal,setGoal]=useState(()=>loadLS("fpro_goal",""));
+  const [riskPct,setRiskPct]=useState(()=>loadLS("fpro_risk","1"));
+  const [rrRatio,setRrRatio]=useState(()=>loadLS("fpro_rr","1:2"));
+  const [selectedLot,setSelectedLot]=useState(()=>loadLS("fpro_lot",LOT_SIZES[1]));
+  const [planSession,setPlanSession]=useState(()=>loadLS("fpro_psession","London"));
+  const [planPair,setPlanPair]=useState(()=>loadLS("fpro_ppair","EUR/USD"));
+  const [planEntryPrice,setPlanEntryPrice]=useState("");
+  const [planDirection,setPlanDirection]=useState(()=>loadLS("fpro_pdir","Buy"));
+  const [alerts,setAlerts]=useState(()=>loadLS("fpro_alerts",[]));
+  const [triggeredAlerts,setTriggeredAlerts]=useState(()=>loadLS("fpro_triggered",[]));
+  const [macdAlertPairs,setMacdAlertPairs]=useState(()=>loadLS("fpro_macdalerts",[]));
+
+  // Chart state
+  const [chartPair,setChartPair]=useState("EUR/USD");
+  const [chartTf,setChartTf]=useState("5m");
+  const [chartCat,setChartCat]=useState("Forex");
+  const [chartSearch,setChartSearch]=useState("");
+  const [tradeForm,setTradeForm]=useState({pair:"EUR/USD",type:"Buy",pips:"",duration:"",note:""});
+
+  // Persist key state
+  useEffect(()=>saveLS("fpro_dark",darkMode),[darkMode]);
+  useEffect(()=>saveLS("fpro_checklist",checklist),[checklist]);
+  useEffect(()=>saveLS("fpro_sessions",selectedSessions),[selectedSessions]);
+  useEffect(()=>saveLS("fpro_salerts",sessionAlerts),[sessionAlerts]);
+  useEffect(()=>saveLS("fpro_watchlist",watchlist),[watchlist]);
+  useEffect(()=>saveLS("fpro_trades",trades),[trades]);
+  useEffect(()=>saveLS("fpro_plan",calcResult),[calcResult]);
+  useEffect(()=>saveLS("fpro_balance",balance),[balance]);
+  useEffect(()=>saveLS("fpro_goal",goal),[goal]);
+  useEffect(()=>saveLS("fpro_risk",riskPct),[riskPct]);
+  useEffect(()=>saveLS("fpro_rr",rrRatio),[rrRatio]);
+  useEffect(()=>saveLS("fpro_lot",selectedLot),[selectedLot]);
+  useEffect(()=>saveLS("fpro_psession",planSession),[planSession]);
+  useEffect(()=>saveLS("fpro_ppair",planPair),[planPair]);
+  useEffect(()=>saveLS("fpro_pdir",planDirection),[planDirection]);
+  useEffect(()=>saveLS("fpro_alerts",alerts),[alerts]);
+  useEffect(()=>saveLS("fpro_triggered",triggeredAlerts),[triggeredAlerts]);
+  useEffect(()=>saveLS("fpro_macdalerts",macdAlertPairs),[macdAlertPairs]);
+
+  useEffect(()=>{ const t=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(t); },[]);
+  useEffect(()=>{ const t=setInterval(()=>setTick(n=>n+1),2000); return()=>clearInterval(t); },[]);
+
+  // Price alerts
+  useEffect(()=>{
+    alerts.forEach(alert=>{
+      if(alert.triggered) return;
+      const cur=prices[alert.pair]?.bid; if(!cur) return;
+      const hit=alert.condition==="above"?cur>=parseFloat(alert.price):cur<=parseFloat(alert.price);
+      if(hit){
+        setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,triggered:true}:a));
+        setTriggeredAlerts(prev=>[{...alert,triggeredAt:new Date().toLocaleTimeString()},...prev]);
+        showNotif(`🔔 ${alert.pair} hit ${alert.price}!`);
+      }
+    });
+  },[prices]);
+
+  // MACD signal alerts
+  useEffect(()=>{
+    macdAlertPairs.forEach(pair=>{
+      const candles=candlesRef.current[pair]||[];
+      const macd=calcMACD(candles);
+      if(!macd.signals.length) return;
+      const last=macd.signals[macd.signals.length-1];
+      if(candles.length-last.i===1) showNotif(`${last.type==="buy"?"▲ BUY":"▼ SELL"} MACD signal: ${pair}!`);
+    });
+  },[tick]);
+
+  function showNotif(msg){setNotification(msg);setTimeout(()=>setNotification(null),3000);}
+  function markChecklist(key){setChecklist(prev=>({...prev,[key]:true}));}
+  function toggleSession(n){setSelectedSessions(prev=>prev.includes(n)?prev.filter(s=>s!==n):[...prev,n]);markChecklist("session");}
+  function toggleWatchlist(pair){setWatchlist(prev=>prev.includes(pair)?prev.filter(p=>p!==pair):[...prev,pair]);markChecklist("watchlist");}
+  function toggleMacdAlert(pair){setMacdAlertPairs(prev=>prev.includes(pair)?prev.filter(p=>p!==pair):[...prev,pair]);}
+  function addAlert(){if(!alertForm.price)return;setAlerts(prev=>[{...alertForm,id:Date.now(),triggered:false,createdAt:new Date().toLocaleTimeString()},...prev]);setAlertForm(prev=>({...prev,price:""}));showNotif("🔔 Alert set!");}
+  const [alertForm,setAlertForm]=useState({pair:"EUR/USD",price:"",condition:"above"});
+  function removeAlert(id){setAlerts(prev=>prev.filter(a=>a.id!==id));}
+  function addTrade(){
+    if(!tradeForm.pips) return;
+    setTrades(prev=>[{...tradeForm,id:Date.now(),date:new Date().toLocaleDateString()},...prev]);
+    setTradeForm({pair:"EUR/USD",type:"Buy",pips:"",duration:"",note:""});
+    markChecklist("trade"); showNotif("📝 Trade logged!");
+  }
+  function calculatePlan(){
+    if(!goal||!balance) return;
+    const g=parseFloat(goal),b=parseFloat(balance),pipVal=selectedLot.pipValue;
+    const rrNum=parseFloat(rrRatio.split(":")[1]);
+    const riskPerTrade=(b*parseFloat(riskPct))/100;
+    const profitPerTrade=riskPerTrade*rrNum;
+    const tradesNeeded=Math.ceil(g/profitPerTrade);
+    let exitPrice=null,stopLossPrice=null,pipsForResult=null,slPips=null;
+    if(planEntryPrice&&pipVal>0){
+      const entry=parseFloat(planEntryPrice);
+      const tpPips=profitPerTrade/pipVal,slPipsV=riskPerTrade/pipVal;
+      pipsForResult=tpPips.toFixed(1); slPips=slPipsV.toFixed(1);
+      const pipSize=getPipSize(planPair),dec=prices[planPair]?.decimals??4;
+      exitPrice=(planDirection==="Buy"?entry+tpPips*pipSize:entry-tpPips*pipSize).toFixed(dec);
+      stopLossPrice=(planDirection==="Buy"?entry-slPipsV*pipSize:entry+slPipsV*pipSize).toFixed(dec);
+    }
+    setCalcResult({profitPerTrade:profitPerTrade.toFixed(2),tradesNeeded,riskPerTrade:riskPerTrade.toFixed(2),
+      session:planSession,pair:planPair,entryPrice:planEntryPrice,direction:planDirection,
+      exitPrice,stopLossPrice,pips:pipsForResult,slPips,rrRatio});
+    markChecklist("balance"); markChecklist("plan");
+    showNotif("✅ Plan calculated!");
+  }
+  function exportJournal(){
+    const lines=["ForexPro — Trade Journal","=".repeat(30),""];
+    trades.forEach(t=>lines.push(`${t.date} | ${t.pair} | ${t.type} | ${parseFloat(t.pips)>0?"+":""}${t.pips} pips${t.duration?" | "+t.duration:""}${t.note?" | "+t.note:""}`));
+    lines.push("","─".repeat(30));
+    lines.push(`Trades: ${trades.length}  |  Win Rate: ${winRate}%  |  Total Pips: ${totalPips>0?"+":""}${totalPips.toFixed(1)}`);
+    if(bestTrade) lines.push(`Best: ${bestTrade.pair} +${bestTrade.pips} pips`);
+    if(worstTrade) lines.push(`Worst: ${worstTrade.pair} ${worstTrade.pips} pips`);
+    const text=lines.join("\n");
+    setExportText(text);
+    navigator.clipboard?.writeText(text).then(()=>showNotif("📋 Copied to clipboard!")).catch(()=>{});
+  }
+
+  // Derived stats
+  const totalPips=trades.reduce((s,t)=>s+parseFloat(t.pips||0),0);
+  const winTrades=trades.filter(t=>parseFloat(t.pips)>0).length;
+  const loseTrades=trades.filter(t=>parseFloat(t.pips)<0).length;
+  const winRate=trades.length?Math.round((winTrades/trades.length)*100):0;
+  const goalProfit=calcResult?parseFloat(calcResult.profitPerTrade)*winTrades:0;
+  const goalTarget=calcResult?parseFloat(goal||0):0;
+  const goalPct=goalTarget>0?Math.min(100,Math.round((goalProfit/goalTarget)*100)):0;
+  const maxDrawdown=trades.length?(()=>{ let w=0,r=0;[...trades].reverse().forEach(t=>{const p=parseFloat(t.pips||0);if(p<0){r+=p;if(r<w)w=r;}else r=0;});return w.toFixed(1);})():0;
+  const bestTrade=trades.length?trades.reduce((a,b)=>parseFloat(a.pips)>parseFloat(b.pips)?a:b):null;
+  const worstTrade=trades.length?trades.reduce((a,b)=>parseFloat(a.pips)<parseFloat(b.pips)?a:b):null;
+  const equityCurve=[];let running=0;[...trades].reverse().forEach(t=>{running+=parseFloat(t.pips||0);equityCurve.push(running);});
+
+  // Session performance
+  const sessionPerf=SESSIONS.map(s=>{
+    const sessionTrades=trades.filter(t=>t.session===s.name);
+    const w=sessionTrades.filter(t=>parseFloat(t.pips)>0).length;
+    return {name:s.name,color:s.color,emoji:s.emoji,trades:sessionTrades.length,winRate:sessionTrades.length?Math.round((w/sessionTrades.length)*100):0};
+  });
+
+  // Streak
+  let streak=0,streakType="";
+  for(let i=0;i<trades.length;i++){
+    const p=parseFloat(trades[i].pips||0);
+    if(i===0){streak=1;streakType=p>0?"win":"loss";}
+    else {
+      const cur=p>0?"win":"loss";
+      if(cur===streakType) streak++;
+      else break;
+    }
+  }
+
+  const londonActive=isSessionActive(SESSIONS[1]),nyActive=isSessionActive(SESSIONS[2]);
+  const overlapActive=londonActive&&nyActive;
+  const checklistCount=Object.values(checklist).filter(Boolean).length;
+  const onboardingComplete=checklistCount===ONBOARDING_STEPS.length;
+
+  // Daily MACD signals
+  const dailySignals=watchlist.map(pair=>{
+    const candles=candlesRef.current[pair]||[];
+    const macd=calcMACD(candles);
+    if(!macd.signals.length) return null;
+    const last=macd.signals[macd.signals.length-1];
+    if(candles.length-last.i<10) return {pair,type:last.type};
+    return null;
+  }).filter(Boolean);
+
+  // Chart nav
+  const watchlistPairs=watchlist.length?watchlist:["EUR/USD"];
+  function chartNavPrev(){const idx=watchlistPairs.indexOf(chartPair);setChartPair(watchlistPairs[idx<=0?watchlistPairs.length-1:idx-1]);}
+  function chartNavNext(){const idx=watchlistPairs.indexOf(chartPair);setChartPair(watchlistPairs[idx>=watchlistPairs.length-1?0:idx+1]);}
+
+  const catItems=INSTRUMENT_CATEGORIES.find(c=>c.label===chartCat)?.items||[];
+  const filteredPairs=chartSearch.trim()?ALL_PAIRS.filter(p=>p.toLowerCase().includes(chartSearch.toLowerCase())):catItems;
+
+  const currentChartCandles=candlesRef.current[chartPair]||[];
+  const currentChartPrice=prices[chartPair]?.bid;
+  const chartChange=currentChartCandles.length>=2?((currentChartCandles[currentChartCandles.length-1].c-currentChartCandles[0].c)/currentChartCandles[0].c*100):0;
+  const confluenceScore=getConfluence(chartPair,currentChartCandles,prices);
+  const mtfSignals=getMTFSignals(currentChartCandles);
+
+  // Theme
+  const C=darkMode?{bg:"#0A0E1A",surface:"#0F1629",card:"#141C30",card2:"#1A2340",border:"rgba(255,255,255,0.08)",text:"#E8ECF4",muted:"#8892A4",dim:"#5A6478",accent:"#4ECDC4",accentBg:"rgba(78,205,196,0.12)",danger:"#FF6B6B",warn:"#FF6B35"}
+  :{bg:"#F0F4F8",surface:"#FFFFFF",card:"#FFFFFF",card2:"#F7FAFC",border:"rgba(0,0,0,0.08)",text:"#1A202C",muted:"#718096",dim:"#A0AEC0",accent:"#0BC5B8",accentBg:"rgba(11,197,184,0.1)",danger:"#E53E3E",warn:"#DD6B20"};
+
+  const S={
+    app:{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:C.bg,minHeight:"100vh",color:C.text,maxWidth:420,margin:"0 auto",position:"relative",paddingBottom:90},
+    header:{background:darkMode?"linear-gradient(135deg,#0F1629,#1A2340)":C.surface,padding:"13px 14px",borderBottom:`1px solid ${C.border}`},
+    tabs:{display:"flex",background:C.surface,borderBottom:`1px solid ${C.border}`,overflowX:"auto"},
+    tab:(a)=>({flex:"0 0 auto",padding:"10px 9px",fontSize:10,fontWeight:a?700:500,color:a?C.accent:C.dim,borderBottom:a?`2px solid ${C.accent}`:"2px solid transparent",cursor:"pointer",whiteSpace:"nowrap",background:"none",border:"none",borderBottom:a?`2px solid ${C.accent}`:"2px solid transparent"}),
+    content:{padding:"12px 12px 0"},
+    card:{background:`linear-gradient(135deg,${C.card},${C.card2})`,border:`1px solid ${C.border}`,borderRadius:16,padding:13,marginBottom:11},
+    cardTitle:{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:11},
+    input:{width:"100%",background:darkMode?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.04)",border:`1.5px solid ${C.border}`,borderRadius:10,padding:"9px 13px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:9},
+    select:{width:"100%",background:darkMode?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.04)",border:`1.5px solid ${C.border}`,borderRadius:10,padding:"9px 13px",color:C.text,fontSize:14,outline:"none",marginBottom:9},
+    btn:(col)=>({background:`linear-gradient(135deg,${col||C.accent},${col||C.accent}BB)`,border:"none",borderRadius:12,padding:"11px 18px",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",width:"100%",marginTop:3}),
+    resultBox:{background:C.accentBg,border:`1.5px solid ${C.accent}44`,borderRadius:12,padding:13,marginTop:11},
+    resultRow:{display:"flex",justifyContent:"space-between",marginBottom:7,alignItems:"center"},
+    resultLabel:{fontSize:12,color:C.muted},
+    resultValue:{fontSize:14,fontWeight:700,color:C.accent},
+    statRow:{display:"flex",gap:9,marginBottom:11},
+    statCard:{flex:1,background:`linear-gradient(135deg,${C.card},${C.card2})`,border:`1px solid ${C.border}`,borderRadius:13,padding:11,textAlign:"center"},
+    statNum:{fontSize:19,fontWeight:800,color:C.accent},
+    statLabel:{fontSize:8,color:C.muted,marginTop:2,textTransform:"uppercase",letterSpacing:0.5},
+    tradeItem:{background:darkMode?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.02)",border:`1px solid ${C.border}`,borderRadius:11,padding:11,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center"},
+    notif:{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",background:C.surface,border:`1.5px solid ${C.accent}`,borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:600,color:C.accent,zIndex:999,whiteSpace:"nowrap",boxShadow:"0 8px 32px rgba(0,0,0,0.3)"},
+    bottomNav:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:420,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"7px 0 13px",zIndex:100},
+    navBtn:(a)=>({display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",color:a?C.accent:C.dim,fontSize:8,fontWeight:a?700:500}),
+    sectionLabel:{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:7},
+    pill:(active,col)=>({padding:"5px 11px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-block",background:active?col+"22":"rgba(128,128,128,0.07)",border:`1.5px solid ${active?col:C.border}`,color:active?col:C.dim}),
+    dirBtn:(active,col)=>({flex:1,padding:"11px 8px",borderRadius:11,textAlign:"center",cursor:"pointer",fontWeight:800,fontSize:13,background:active?col+"22":"rgba(128,128,128,0.06)",border:`1.5px solid ${active?col:C.border}`,color:active?col:C.dim}),
+    toggle:(on,col)=>({width:46,height:25,borderRadius:13,background:on?(col||C.accent):"rgba(128,128,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.25s",flexShrink:0}),
+    toggleDot:(on)=>({width:19,height:19,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:on?24:3,transition:"left 0.25s",boxShadow:"0 1px 4px rgba(0,0,0,0.4)"}),
+    impactBadge:(impact)=>({fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:9,background:impact==="high"?"rgba(255,107,107,0.2)":impact==="medium"?"rgba(255,107,53,0.2)":"rgba(136,146,164,0.2)",color:impact==="high"?C.danger:impact==="medium"?C.warn:C.muted,minWidth:40,textAlign:"center",display:"inline-block"}),
+  };
+
+  // PIN lock
+  if (locked) return <PinScreen onUnlock={()=>setLocked(false)} darkMode={darkMode} C={C}/>;
+
+  return (
+    <div style={S.app}>
+      {notification&&<div style={S.notif}>{notification}</div>}
+      {showPipCalc&&<PipCalcSheet prices={prices} C={C} S={S} onClose={()=>setShowPipCalc(false)}/>}
+      {tradeDetail&&<TradeDetailSheet trade={tradeDetail} calcResult={calcResult} C={C} S={S} onClose={()=>setTradeDetail(null)}/>}
+
+      {/* Header */}
+      <div style={S.header}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:19,fontWeight:800,letterSpacing:"-0.5px",color:C.text}}>Forex<span style={{color:C.accent}}>Pro</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <TapButton onClick={()=>setShowPipCalc(true)} style={{background:C.accentBg,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"4px 8px",fontSize:10,fontWeight:700,color:C.accent}}>⚡ Pips</TapButton>
+            <div style={{fontSize:10,color:C.muted,fontFamily:"monospace"}}>
+              {time.toLocaleTimeString("en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true})} CST
+            </div>
+            <div style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6,
+              background:usingLive.current?"rgba(38,166,154,0.15)":"rgba(255,107,53,0.15)",
+              color:usingLive.current?"#26a69a":"#FF6B35",
+              border:`1px solid ${usingLive.current?"rgba(38,166,154,0.4)":"rgba(255,107,53,0.4)"}`}}>
+              {usingLive.current?"● LIVE":"◌ SIM"}
+            </div>
+            <div onClick={()=>setDarkMode(d=>!d)} style={{...S.toggle(darkMode,"#555"),width:36,height:20,cursor:"pointer"}}>
+              <div style={{...S.toggleDot(darkMode),width:14,height:14,top:3,left:darkMode?19:3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8}}>{darkMode?"🌙":"☀️"}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={S.tabs}>
+        {[["dashboard","📊","Home"],["charts","🕯","Charts"],["sessions","🕐","Sessions"],["prices","📈","Prices"],["planner","🎯","Planner"],["alerts","🔔","Alerts"],["journal","📝","Journal"],["guide","✅","Guide"]].map(([id,icon,label])=>(
+          <button key={id} style={S.tab(activeTab===id)} onClick={()=>setActiveTab(id)}>
+            {icon} {label}
+            {id==="guide"&&!onboardingComplete&&<span style={{marginLeft:2,width:5,height:5,borderRadius:"50%",background:C.warn,display:"inline-block",verticalAlign:"middle"}}/>}
+          </button>
+        ))}
+      </div>
+
+      <div style={S.content}>
+
+        {/* ── DASHBOARD ── */}
+        {activeTab==="dashboard"&&(<>
+          {overlapActive&&(<div style={{background:"rgba(255,107,53,0.12)",border:"1.5px solid rgba(255,107,53,0.4)",borderRadius:13,padding:"9px 13px",marginBottom:11,display:"flex",alignItems:"center",gap:9}}><span style={{fontSize:17}}>⚡</span><div><div style={{fontWeight:700,fontSize:12,color:C.warn}}>London–New York Overlap LIVE</div><div style={{fontSize:10,color:C.muted}}>Highest volume window — elevated volatility</div></div></div>)}
+
+          {/* Streak */}
+          {streak>1&&(<div style={{background:streakType==="win"?"rgba(38,166,154,0.12)":"rgba(239,83,80,0.12)",border:`1.5px solid ${streakType==="win"?"rgba(38,166,154,0.4)":"rgba(239,83,80,0.4)"}`,borderRadius:13,padding:"9px 13px",marginBottom:11,display:"flex",alignItems:"center",gap:9}}>
+            <span style={{fontSize:20}}>{streakType==="win"?"🔥":"❄️"}</span>
+            <div><div style={{fontWeight:700,fontSize:13,color:streakType==="win"?"#26a69a":"#ef5350"}}>{streak}-Trade {streakType==="win"?"Win":"Loss"} Streak!</div><div style={{fontSize:10,color:C.muted}}>{streakType==="win"?"You're on fire. Stay disciplined.":"Review your setup — consider a break."}</div></div>
+          </div>)}
+
+          {/* Daily Summary */}
+          <div style={S.card}>
+            <div style={S.cardTitle}>📋 Daily Summary</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:11,color:C.muted}}>Active Sessions</span><span style={{fontSize:11,fontWeight:700,color:C.accent}}>{SESSIONS.filter(s=>isSessionActive(s)).map(s=>s.name).join(", ")||"None"}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:11,color:C.muted}}>Trades Today</span><span style={{fontSize:11,fontWeight:700,color:C.text}}>{trades.length}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:11,color:C.muted}}>Pips Today</span><span style={{fontSize:11,fontWeight:700,color:totalPips>=0?C.accent:C.danger}}>{totalPips>0?"+":""}{totalPips.toFixed(1)}</span></div>
+            {dailySignals.length>0&&(<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+              <div style={{fontSize:9,color:C.muted,marginBottom:5}}>MACD SIGNALS</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                {dailySignals.map((sig,i)=>(<span key={i} style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,background:sig.type==="buy"?"rgba(38,166,154,0.15)":"rgba(239,83,80,0.15)",color:sig.type==="buy"?"#26a69a":"#ef5350",border:`1px solid ${sig.type==="buy"?"#26a69a":"#ef5350"}`}}>{sig.type==="buy"?"▲":"▼"} {sig.pair}</span>))}
+              </div>
+            </div>)}
+          </div>
+
+          <div style={S.statRow}>
+            <div style={S.statCard}><div style={S.statNum}>{trades.length}</div><div style={S.statLabel}>Trades</div></div>
+            <div style={S.statCard}><div style={S.statNum}>{winRate}%</div><div style={S.statLabel}>Win Rate</div></div>
+            <div style={S.statCard}><div style={{...S.statNum,color:totalPips>=0?C.accent:C.danger}}>{totalPips>0?"+":""}{totalPips.toFixed(0)}</div><div style={S.statLabel}>Total Pips</div></div>
+          </div>
+
+          {/* Equity Curve */}
+          {equityCurve.length>1&&(<div style={S.card}>
+            <div style={S.cardTitle}>📈 Equity Curve</div>
+            <svg width={370} height={65} style={{width:"100%",height:"auto",display:"block"}}>
+              {(()=>{const mn=Math.min(...equityCurve),mx=Math.max(...equityCurve),rng=mx-mn||1;const W2=360,H2=58,PL2=5,PT2=4;const xs=i=>PL2+(i/(equityCurve.length-1))*(W2-PL2),ys=v=>PT2+(H2-PT2)-(((v-mn)/rng)*(H2-PT2));const pts=equityCurve.map((v,i)=>`${xs(i)},${ys(v)}`).join(" ");const col=equityCurve[equityCurve.length-1]>=0?"#26a69a":"#ef5350";return(<><line x1={PL2} y1={ys(0)} x2={W2} y2={ys(0)} stroke={darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)"} strokeWidth={1} strokeDasharray="3,3"/><polyline points={pts} fill="none" stroke={col} strokeWidth={2}/><circle cx={xs(equityCurve.length-1)} cy={ys(equityCurve[equityCurve.length-1])} r={3} fill={col}/></>);})()}
+            </svg>
+          </div>)}
+
+          {calcResult&&(<div style={S.card}>
+            <div style={S.cardTitle}>Daily Goal Progress</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:12,color:C.muted}}>Profit logged</span><span style={{fontWeight:700,fontSize:12,color:C.accent}}>${goalProfit.toFixed(2)} / ${goal}</span></div>
+            <div style={{background:darkMode?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.08)",borderRadius:999,height:9,overflow:"hidden"}}><div style={{width:`${goalPct}%`,height:"100%",background:`linear-gradient(90deg,${C.accent},${C.accent}88)`,borderRadius:999,transition:"width 0.5s"}}/></div>
+            <div style={{fontSize:10,color:C.muted,marginTop:5,textAlign:"right"}}>{goalPct}% of goal reached</div>
+          </div>)}
+
+          {trades.length>0&&(<>
+            <div style={S.statRow}>
+              <div style={S.statCard}><div style={{...S.statNum,color:C.danger,fontSize:17}}>{maxDrawdown}</div><div style={S.statLabel}>Max Drawdown</div></div>
+              <div style={S.statCard}><div style={{...S.statNum,fontSize:15}}>{winTrades}W / {loseTrades}L</div><div style={S.statLabel}>Win / Loss</div></div>
+            </div>
+            {bestTrade&&worstTrade&&(<div style={S.statRow}>
+              <div style={{...S.statCard,borderColor:"rgba(38,166,154,0.3)"}}><div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:0.5}}>Best Trade</div><div style={{fontWeight:800,fontSize:15,color:"#26a69a"}}>+{bestTrade.pips}</div><div style={{fontSize:9,color:C.muted,marginTop:1}}>{bestTrade.pair}</div></div>
+              <div style={{...S.statCard,borderColor:"rgba(239,83,80,0.3)"}}><div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:0.5}}>Worst Trade</div><div style={{fontWeight:800,fontSize:15,color:"#ef5350"}}>{worstTrade.pips}</div><div style={{fontSize:9,color:C.muted,marginTop:1}}>{worstTrade.pair}</div></div>
+            </div>)}
+
+            {/* Session Performance */}
+            <div style={S.card}>
+              <div style={S.cardTitle}>Session Performance</div>
+              {sessionPerf.map(s=>(<div key={s.name} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
+                <div style={{fontSize:14}}>{s.emoji}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:600}}>{s.name}</div>
+                  <div style={{fontSize:9,color:C.muted}}>{s.trades} trades</div>
+                </div>
+                {s.trades>0?(
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:s.winRate>=50?C.accent:C.danger}}>{s.winRate}%</div>
+                    <div style={{fontSize:9,color:C.muted}}>win rate</div>
+                  </div>
+                ):<div style={{fontSize:10,color:C.dim}}>No data</div>}
+              </div>))}
+            </div>
+          </>)}
+
+          <div style={S.card}>
+            <div style={S.cardTitle}>Watchlist</div>
+            {watchlist.map(pair=>(<div key={pair} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:600,fontSize:13}}>{pair}</span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:prices[pair]?.change>0?C.accent:C.danger,transition:"color 0.3s"}}>{prices[pair]?.bid?.toFixed(prices[pair]?.decimals??4)} {prices[pair]?.change>0?"▲":"▼"}</span></div>))}
+            {watchlist.length===0&&<div style={{color:C.dim,fontSize:12}}>Add pairs in the Prices tab</div>}
+          </div>
+        </>)}
+
+        {/* ── CHARTS ── */}
+        {activeTab==="charts"&&(<>
+          <div style={{position:"relative",marginBottom:10}}>
+            <input style={{...S.input,marginBottom:0,paddingLeft:32}} placeholder="Search any instrument..." value={chartSearch} onChange={e=>setChartSearch(e.target.value)}/>
+            <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.dim}}>🔍</span>
+            {chartSearch&&<span onClick={()=>setChartSearch("")} style={{position:"absolute",right:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.dim,cursor:"pointer"}}>✕</span>}
+          </div>
+          {!chartSearch&&(<div style={{display:"flex",gap:7,marginBottom:10,flexWrap:"wrap"}}>
+            {INSTRUMENT_CATEGORIES.map(cat=>(<div key={cat.label} style={S.pill(chartCat===cat.label,C.accent)} onClick={()=>{setChartCat(cat.label);setChartPair(cat.items[0]);}}>{cat.emoji} {cat.label}</div>))}
+          </div>)}
+          <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+            {filteredPairs.map(pair=>(<div key={pair} onClick={()=>{setChartPair(pair);setChartSearch("");}} style={{padding:"4px 9px",borderRadius:15,fontSize:11,fontWeight:600,cursor:"pointer",background:chartPair===pair?C.accentBg:"rgba(128,128,128,0.07)",border:`1.5px solid ${chartPair===pair?C.accent:C.border}`,color:chartPair===pair?C.accent:C.dim}}>{pair}</div>))}
+          </div>
+
+          <div style={{...S.card,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:800}}>{chartPair}</div>
+                <div style={{fontFamily:"monospace",fontSize:18,fontWeight:700,color:prices[chartPair]?.change>0?C.accent:C.danger,marginTop:1}}>{currentChartPrice?.toFixed(prices[chartPair]?.decimals??4)}</div>
+                <div style={{fontSize:11,color:chartChange>=0?C.accent:C.danger,marginTop:1,fontWeight:600}}>{chartChange>=0?"+":""}{chartChange.toFixed(2)}%</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{marginBottom:7}}>
+                  <div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:0.5}}>Confluence</div>
+                  <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"flex-end"}}>
+                    <div style={{display:"flex",gap:2}}>{Array.from({length:10},(_,i)=>(<div key={i} style={{width:6,height:13,borderRadius:2,background:i<confluenceScore?confluenceColor(confluenceScore,C):"rgba(128,128,128,0.15)"}}/>))}</div>
+                    <span style={{fontWeight:800,fontSize:13,color:confluenceColor(confluenceScore,C)}}>{confluenceScore}/10</span>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  {TF_OPTIONS.map(tf=>(<div key={tf} onClick={()=>setChartTf(tf)} style={{padding:"2px 6px",borderRadius:7,fontSize:9,fontWeight:700,cursor:"pointer",background:chartTf===tf?C.accentBg:"rgba(128,128,128,0.08)",border:`1px solid ${chartTf===tf?C.accent:C.border}`,color:chartTf===tf?C.accent:C.dim}}>{tf}</div>))}
+                </div>
+              </div>
+            </div>
+
+            {/* Multi-timeframe MACD */}
+            <div style={{display:"flex",gap:7,marginBottom:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+              {mtfSignals.map(tf=>(<div key={tf.tf} style={{flex:1,textAlign:"center",padding:"6px 4px",borderRadius:9,background:tf.signal==="buy"?"rgba(38,166,154,0.12)":tf.signal==="sell"?"rgba(239,83,80,0.12)":"rgba(128,128,128,0.06)",border:`1px solid ${tf.signal==="buy"?"rgba(38,166,154,0.3)":tf.signal==="sell"?"rgba(239,83,80,0.3)":C.border}`}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:2}}>{tf.tf}</div>
+                <div style={{fontSize:11,fontWeight:800,color:tf.signal==="buy"?"#26a69a":tf.signal==="sell"?"#ef5350":C.dim}}>{tf.signal==="buy"?"▲ BUY":tf.signal==="sell"?"▼ SELL":"—"}</div>
+                <div style={{fontSize:8,color:C.dim,marginTop:1}}>{tf.strength}</div>
+              </div>))}
+            </div>
+
+            {currentChartCandles.length>0&&(()=>{const last=currentChartCandles[currentChartCandles.length-1],dec=prices[chartPair]?.decimals??4;return(<div style={{display:"flex",gap:12,fontSize:10}}><span style={{color:C.muted}}>O:<span style={{color:C.text,fontWeight:700,marginLeft:2}}>{last.o.toFixed(dec)}</span></span><span style={{color:C.muted}}>H:<span style={{color:"#26a69a",fontWeight:700,marginLeft:2}}>{last.h.toFixed(dec)}</span></span><span style={{color:C.muted}}>L:<span style={{color:"#ef5350",fontWeight:700,marginLeft:2}}>{last.l.toFixed(dec)}</span></span><span style={{color:C.muted}}>C:<span style={{color:C.accent,fontWeight:700,marginLeft:2}}>{last.c.toFixed(dec)}</span></span></div>);})()}
+          </div>
+
+          <CandleChart key={`${chartPair}-${tick}`} pair={chartPair} candles={currentChartCandles} currentPrice={currentChartPrice} calcResult={calcResult} darkMode={darkMode} C={C}/>
+
+          {watchlist.length>1&&(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"10px 0",padding:"8px 12px",background:C.accentBg,borderRadius:12,border:`1px solid ${C.accent}44`}}>
+            <TapButton onClick={chartNavPrev} style={{background:"none",border:"none",color:C.accent,fontSize:20,cursor:"pointer",padding:"0 4px",fontWeight:700}}>‹</TapButton>
+            <div style={{textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>Watchlist</div><div style={{fontSize:12,fontWeight:700,color:C.text}}>{chartPair} <span style={{color:C.dim,fontWeight:400}}>({watchlistPairs.indexOf(chartPair)+1}/{watchlistPairs.length})</span></div></div>
+            <TapButton onClick={chartNavNext} style={{background:"none",border:"none",color:C.accent,fontSize:20,cursor:"pointer",padding:"0 4px",fontWeight:700}}>›</TapButton>
+          </div>)}
+
+          <div style={S.card}>
+            <div style={S.cardTitle}>Quick View</div>
+            {filteredPairs.slice(0,8).map(pair=>{
+              const p=prices[pair],hist=candlesRef.current[pair]||[];
+              const chg=hist.length>=2?((hist[hist.length-1].c-hist[0].c)/hist[0].c*100):0;
+              const conf=getConfluence(pair,hist,prices);
+              return (<div key={pair} onClick={()=>{setChartPair(pair);setChartSearch("");}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:chartPair===pair?C.accentBg:"transparent",margin:"0 -13px",padding:"9px 13px"}}>
+                <div><div style={{fontWeight:700,fontSize:12}}>{pair}</div><div style={{fontSize:9,color:confluenceColor(conf,C),marginTop:2}}>Confluence: {conf}/10</div></div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <svg width={50} height={20} style={{overflow:"visible"}}>{hist.length>=2&&(()=>{const recent=hist.slice(-12),vals=recent.map(c=>c.c),mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;const pts=vals.map((v,i)=>`${(i/(vals.length-1))*50},${18-((v-mn)/rng)*16}`).join(" ");return <polyline points={pts} fill="none" stroke={chg>=0?"#26a69a":"#ef5350"} strokeWidth={1.5}/>;})()}</svg>
+                  <div style={{textAlign:"right"}}><div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:p?.change>0?C.accent:C.danger}}>{p?.bid?.toFixed(p?.decimals??4)}</div><div style={{fontSize:9,fontWeight:700,color:chg>=0?C.accent:C.danger}}>{chg>=0?"+":""}{chg.toFixed(2)}%</div></div>
+                </div>
+              </div>);
+            })}
+          </div>
+        </>)}
+
+        {/* ── SESSIONS ── */}
+        {activeTab==="sessions"&&(<>
+          {overlapActive&&(<div style={{background:"rgba(255,107,53,0.12)",border:"1.5px solid rgba(255,107,53,0.4)",borderRadius:13,padding:"9px 13px",marginBottom:11,display:"flex",gap:9,alignItems:"center"}}><span>⚡</span><div style={{fontSize:11,fontWeight:600,color:C.warn}}>London–NY Overlap — peak liquidity window</div></div>)}
+          <div style={S.card}><div style={S.cardTitle}>Select Sessions</div><div style={{display:"flex",flexWrap:"wrap",gap:7}}>{SESSIONS.map(s=>(<div key={s.name} style={S.pill(selectedSessions.includes(s.name),s.color)} onClick={()=>toggleSession(s.name)}>{s.emoji} {s.name}</div>))}</div></div>
+          {SESSIONS.map(s=>{const active=isSessionActive(s),selected=selectedSessions.includes(s.name),alertOn=sessionAlerts[s.name];return(<div key={s.name} style={{...S.card,borderColor:selected?s.color+"44":C.border}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:14,marginBottom:2}}>{s.emoji} {s.name} Session</div><div style={{fontSize:11,color:C.muted}}>{String(s.open).padStart(2,"0")}:00 – {String(s.close).padStart(2,"0")}:00 UTC</div></div><div style={{textAlign:"right"}}><div style={{fontSize:10,fontWeight:700,color:active?s.color:C.dim,background:active?s.color+"18":"transparent",padding:"3px 9px",borderRadius:20,border:`1px solid ${active?s.color:"transparent"}`}}>{active?"● LIVE":"○ CLOSED"}</div><div style={{fontSize:10,color:C.muted,marginTop:4}}>{sessionCountdown(s)}</div></div></div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:11,paddingTop:11,borderTop:`1px solid ${C.border}`}}><div><div style={{fontSize:11,fontWeight:600,color:alertOn?C.accent:C.dim}}>🔔 Notify when opens</div><div style={{fontSize:9,color:C.dim,marginTop:2}}>{alertOn?"ON":"OFF"}</div></div><div style={S.toggle(alertOn,s.color)} onClick={()=>setSessionAlerts(prev=>{const next={...prev,[s.name]:!prev[s.name]};showNotif(next[s.name]?`🔔 ${s.name} alert ON`:`🔕 ${s.name} alert OFF`);return next;})}><div style={S.toggleDot(alertOn)}/></div></div>
+          </div>);})}
+        </>)}
+
+        {/* ── PRICES ── */}
+        {activeTab==="prices"&&(<>
+          {INSTRUMENT_CATEGORIES.map(cat=>(<div key={cat.label} style={S.card}><div style={S.cardTitle}>{cat.emoji} {cat.label}</div><div style={{display:"flex",flexWrap:"wrap",gap:7}}>{cat.items.map(pair=>(<div key={pair} style={S.pill(watchlist.includes(pair),C.accent)} onClick={()=>toggleWatchlist(pair)}>{pair}</div>))}</div></div>))}
+          <div style={S.card}><div style={S.cardTitle}>Live Prices</div>{watchlist.map(pair=>(<div key={pair} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:13}}>{pair}</div><div style={{fontSize:10,color:C.muted}}>Ask: {prices[pair]?.ask?.toFixed(prices[pair]?.decimals??4)}</div></div><div style={{textAlign:"right"}}><div style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:prices[pair]?.change>0?C.accent:C.danger,transition:"color 0.3s"}}>{prices[pair]?.bid?.toFixed(prices[pair]?.decimals??4)}</div><div style={{fontSize:10,color:prices[pair]?.change>0?C.accent:C.danger}}>{prices[pair]?.change>0?"▲":"▼"}</div></div></div>))}{watchlist.length===0&&<div style={{color:C.dim,fontSize:12}}>Select instruments above</div>}</div>
+        </>)}
+
+        {/* ── PLANNER ── */}
+        {activeTab==="planner"&&(<>
+          <div style={S.card}>
+            <div style={S.cardTitle}>Set Your Goal</div>
+            <input style={S.input} type="number" placeholder="Account Balance ($)" value={balance} onChange={e=>{setBalance(e.target.value);markChecklist("balance");}}/>
+            <input style={S.input} type="number" placeholder="Profit Goal ($)" value={goal} onChange={e=>setGoal(e.target.value)}/>
+            <input style={S.input} type="number" placeholder="Risk per Trade (%)" value={riskPct} onChange={e=>setRiskPct(e.target.value)}/>
+            <div style={S.sectionLabel}>Risk / Reward Ratio</div>
+            <div style={{display:"flex",gap:7,marginBottom:13}}>{RR_OPTIONS.map(r=>(<TapButton key={r} onClick={()=>setRrRatio(r)} style={{flex:1,padding:"8px 4px",borderRadius:11,textAlign:"center",fontSize:11,fontWeight:700,background:rrRatio===r?C.accentBg:"rgba(128,128,128,0.06)",border:`1.5px solid ${rrRatio===r?C.accent:C.border}`,color:rrRatio===r?C.accent:C.dim}}>{r}</TapButton>))}</div>
+            <div style={S.sectionLabel}>Session</div>
+            <div style={{display:"flex",gap:7,marginBottom:13}}>{SESSIONS.map(s=>(<TapButton key={s.name} onClick={()=>setPlanSession(s.name)} style={{flex:1,padding:"8px 4px",borderRadius:11,textAlign:"center",fontSize:10,fontWeight:700,background:planSession===s.name?s.color+"22":"rgba(128,128,128,0.06)",border:`1.5px solid ${planSession===s.name?s.color:C.border}`,color:planSession===s.name?s.color:C.dim}}>{s.emoji} {s.name}</TapButton>))}</div>
+            <div style={S.sectionLabel}>Instrument</div>
+            <select style={S.select} value={planPair} onChange={e=>setPlanPair(e.target.value)}>{INSTRUMENT_CATEGORIES.map(cat=>(<optgroup key={cat.label} label={`${cat.emoji} ${cat.label}`}>{cat.items.map(pair=><option key={pair} value={pair}>{pair}</option>)}</optgroup>))}</select>
+            <div style={S.sectionLabel}>Entry Price</div>
+            <div style={{position:"relative",marginBottom:13}}>
+              <input style={{...S.input,marginBottom:0,paddingRight:85}} type="number" step="any" placeholder="Enter price..." value={planEntryPrice} onChange={e=>setPlanEntryPrice(e.target.value)}/>
+              <TapButton onClick={()=>{const p=prices[planPair]?.bid;if(p)setPlanEntryPrice(p.toFixed(prices[planPair]?.decimals??4));}} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",fontSize:9,fontWeight:700,color:C.accent,background:C.accentBg,border:`1px solid ${C.accent}44`,borderRadius:6,padding:"3px 7px"}}>Use Live</TapButton>
+            </div>
+            <div style={S.sectionLabel}>Direction</div>
+            <div style={{display:"flex",gap:7,marginBottom:3}}>{["Buy","Sell"].map(d=>(<TapButton key={d} onClick={()=>setPlanDirection(d)} style={S.dirBtn(planDirection===d,d==="Buy"?C.accent:C.danger)}>{d==="Buy"?"▲ Buy":"▼ Sell"}</TapButton>))}</div>
+          </div>
+          <div style={S.card}>
+            <div style={S.cardTitle}>Lot Size</div>
+            <div style={{display:"flex",gap:7,marginBottom:9}}>{LOT_SIZES.map(lot=>(<TapButton key={lot.label} onClick={()=>setSelectedLot(lot)} style={{flex:1,padding:"8px 4px",borderRadius:11,textAlign:"center",fontSize:10,fontWeight:700,background:selectedLot.value===lot.value?C.accentBg:"rgba(128,128,128,0.06)",border:`1.5px solid ${selectedLot.value===lot.value?C.accent:C.border}`,color:selectedLot.value===lot.value?C.accent:C.dim}}>{lot.label}</TapButton>))}</div>
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:3}}>
+              <TapButton onClick={()=>setSelectedLot(prev=>{const v=Math.max(0.01,parseFloat((prev.value-0.01).toFixed(2)));return{label:"Custom",value:v,pipValue:parseFloat((v*10).toFixed(2))};} )} style={{width:38,height:38,borderRadius:9,border:`1.5px solid ${C.border}`,background:"rgba(128,128,128,0.08)",color:C.text,fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>−</TapButton>
+              <input type="number" min="0.01" step="0.01" value={selectedLot.value} onChange={e=>{const v=Math.max(0.01,parseFloat(e.target.value)||0.01);setSelectedLot({label:"Custom",value:parseFloat(v.toFixed(2)),pipValue:parseFloat((v*10).toFixed(2))});}} style={{...S.input,marginBottom:0,textAlign:"center",fontWeight:700,fontSize:15,color:C.accent}}/>
+              <TapButton onClick={()=>setSelectedLot(prev=>{const v=parseFloat((prev.value+0.01).toFixed(2));return{label:"Custom",value:v,pipValue:parseFloat((v*10).toFixed(2))};} )} style={{width:38,height:38,borderRadius:9,border:`1.5px solid ${C.border}`,background:"rgba(128,128,128,0.08)",color:C.accent,fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</TapButton>
+            </div>
+            <div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:11}}>Pip Value: <span style={{color:C.accent,fontWeight:700}}>${selectedLot.pipValue.toFixed(2)} / pip</span></div>
+            <TapButton onClick={calculatePlan} style={S.btn()}>Calculate My Plan</TapButton>
+          </div>
+          {calcResult&&(<div style={S.card}>
+            <div style={S.cardTitle}>Your Plan</div>
+            <div style={S.resultBox}>
+              {calcResult.session&&<div style={S.resultRow}><span style={S.resultLabel}>Session</span><span style={S.resultValue}>{SESSIONS.find(s=>s.name===calcResult.session)?.emoji} {calcResult.session}</span></div>}
+              {calcResult.pair&&<div style={S.resultRow}><span style={S.resultLabel}>Instrument</span><span style={S.resultValue}>{calcResult.pair}</span></div>}
+              {calcResult.direction&&<div style={S.resultRow}><span style={S.resultLabel}>Direction</span><span style={{...S.resultValue,color:calcResult.direction==="Buy"?C.accent:C.danger}}>{calcResult.direction==="Buy"?"▲ Buy":"▼ Sell"}</span></div>}
+              {calcResult.rrRatio&&<div style={S.resultRow}><span style={S.resultLabel}>Risk/Reward</span><span style={S.resultValue}>{calcResult.rrRatio}</span></div>}
+              <div style={{borderTop:`1px solid ${C.border}`,margin:"7px 0"}}/>
+              {calcResult.entryPrice&&<div style={S.resultRow}><span style={S.resultLabel}>Entry</span><span style={S.resultValue}>{calcResult.entryPrice}</span></div>}
+              {calcResult.exitPrice&&<div style={S.resultRow}><span style={S.resultLabel}>Take Profit</span><span style={{...S.resultValue,color:C.accent}}>{calcResult.exitPrice}</span></div>}
+              {calcResult.stopLossPrice&&<div style={S.resultRow}><span style={S.resultLabel}>Stop Loss</span><span style={{...S.resultValue,color:C.danger}}>{calcResult.stopLossPrice}</span></div>}
+              {calcResult.pips&&<div style={S.resultRow}><span style={S.resultLabel}>Pips to Target</span><span style={S.resultValue}>📍 {calcResult.pips}</span></div>}
+              {calcResult.slPips&&<div style={S.resultRow}><span style={S.resultLabel}>Pips to SL</span><span style={{...S.resultValue,color:C.danger}}>🛑 {calcResult.slPips}</span></div>}
+              <div style={{borderTop:`1px solid ${C.border}`,margin:"7px 0"}}/>
+              <div style={S.resultRow}><span style={S.resultLabel}>Profit / Trade</span><span style={S.resultValue}>${calcResult.profitPerTrade}</span></div>
+              <div style={S.resultRow}><span style={S.resultLabel}>Risk / Trade</span><span style={{...S.resultValue,color:C.danger}}>${calcResult.riskPerTrade}</span></div>
+              <div style={S.resultRow}><span style={S.resultLabel}>Trades to Goal</span><span style={S.resultValue}>{calcResult.tradesNeeded}</span></div>
+            </div>
+            <TapButton onClick={()=>{setChartPair(calcResult.pair);setActiveTab("charts");}} style={{...S.btn(C.warn),marginTop:10}}>View on Chart →</TapButton>
+          </div>)}
+        </>)}
+
+        {/* ── ALERTS ── */}
+        {activeTab==="alerts"&&(<>
+          <div style={S.card}>
+            <div style={S.cardTitle}>🔔 Set Price Alert</div>
+            <select style={S.select} value={alertForm.pair} onChange={e=>setAlertForm(p=>({...p,pair:e.target.value}))}>{INSTRUMENT_CATEGORIES.map(cat=>(<optgroup key={cat.label} label={`${cat.emoji} ${cat.label}`}>{cat.items.map(pair=><option key={pair} value={pair}>{pair}</option>)}</optgroup>))}</select>
+            <div style={{fontSize:10,color:C.muted,marginBottom:9}}>Current: <span style={{color:C.accent,fontWeight:700}}>{prices[alertForm.pair]?.bid?.toFixed(prices[alertForm.pair]?.decimals??4)??"—"}</span></div>
+            <div style={{display:"flex",gap:7,marginBottom:9}}>{["above","below"].map(cond=>(<TapButton key={cond} onClick={()=>setAlertForm(p=>({...p,condition:cond}))} style={{flex:1,padding:"9px 5px",borderRadius:11,textAlign:"center",fontWeight:700,fontSize:12,background:alertForm.condition===cond?(cond==="above"?C.accentBg:"rgba(255,107,107,0.12)"):"rgba(128,128,128,0.06)",border:`1.5px solid ${alertForm.condition===cond?(cond==="above"?C.accent:C.danger):C.border}`,color:alertForm.condition===cond?(cond==="above"?C.accent:C.danger):C.dim}}>{cond==="above"?"▲ Price Above":"▼ Price Below"}</TapButton>))}</div>
+            <input style={S.input} type="number" step="any" placeholder={`Alert when ${alertForm.pair} goes ${alertForm.condition}...`} value={alertForm.price} onChange={e=>setAlertForm(p=>({...p,price:e.target.value}))}/>
+            <TapButton onClick={addAlert} style={S.btn(C.accent)}>Set Alert</TapButton>
+          </div>
+          <div style={S.card}>
+            <div style={S.cardTitle}>📡 MACD Signal Alerts</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:9}}>Notify when MACD crossover detected:</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {watchlist.map(pair=>(<TapButton key={pair} onClick={()=>toggleMacdAlert(pair)} style={{...S.pill(macdAlertPairs.includes(pair),C.accent),display:"inline-flex",alignItems:"center",gap:4}}>{macdAlertPairs.includes(pair)?"🔔":"🔕"} {pair}</TapButton>))}
+            </div>
+            {watchlist.length===0&&<div style={{fontSize:11,color:C.dim}}>Add pairs to your watchlist first</div>}
+          </div>
+          {alerts.filter(a=>!a.triggered).length>0&&(<div style={S.card}><div style={S.cardTitle}>Active Alerts</div>{alerts.filter(a=>!a.triggered).map(alert=>(<div key={alert.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:13}}>{alert.pair}</div><div style={{fontSize:11,color:alert.condition==="above"?C.accent:C.danger}}>{alert.condition==="above"?"▲ Above":"▼ Below"} {alert.price}</div><div style={{fontSize:9,color:C.dim}}>Set at {alert.createdAt}</div></div><TapButton onClick={()=>removeAlert(alert.id)} style={{background:"rgba(255,107,107,0.1)",border:`1px solid ${C.danger}44`,borderRadius:7,color:C.danger,padding:"5px 11px",fontSize:11,fontWeight:600}}>Remove</TapButton></div>))}</div>)}
+          {triggeredAlerts.length>0&&(<div style={S.card}><div style={S.cardTitle}>Triggered</div>{triggeredAlerts.map((alert,i)=>(<div key={i} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid ${C.border}`,opacity:0.7}}><div><div style={{fontWeight:700,fontSize:13}}>{alert.pair} <span style={{fontSize:10,color:C.accent}}>✓ HIT</span></div><div style={{fontSize:11,color:C.muted}}>{alert.condition==="above"?"▲":"▼"} {alert.price}</div><div style={{fontSize:9,color:C.dim}}>at {alert.triggeredAt}</div></div></div>))}</div>)}
+          {alerts.length===0&&triggeredAlerts.length===0&&<div style={{textAlign:"center",color:C.dim,fontSize:12,marginTop:22}}>No alerts yet.</div>}
+        </>)}
+
+        {/* ── JOURNAL ── */}
+        {activeTab==="journal"&&(<>
+          <div style={S.card}><div style={S.cardTitle}>📅 Economic Calendar</div>{ECONOMIC_EVENTS.map((ev,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontFamily:"monospace",fontSize:11,color:C.muted,minWidth:36}}>{ev.time}</div><div style={S.impactBadge(ev.impact)}>{ev.impact}</div><div style={{flex:1}}><div style={{fontSize:11,fontWeight:600}}>{ev.title}</div><div style={{fontSize:9,color:C.muted}}>{ev.currency}</div></div></div>))}</div>
+          <div style={S.card}>
+            <div style={S.cardTitle}>Log a Trade</div>
+            <select style={S.select} value={tradeForm.pair} onChange={e=>setTradeForm(p=>({...p,pair:e.target.value}))}>{INSTRUMENT_CATEGORIES.map(cat=>(<optgroup key={cat.label} label={`${cat.emoji} ${cat.label}`}>{cat.items.map(pair=><option key={pair} value={pair}>{pair}</option>)}</optgroup>))}</select>
+            <div style={{display:"flex",gap:7,marginBottom:9}}>{["Buy","Sell"].map(type=>(<TapButton key={type} onClick={()=>setTradeForm(p=>({...p,type}))} style={S.dirBtn(tradeForm.type===type,type==="Buy"?C.accent:C.danger)}>{type==="Buy"?"▲":"▼"} {type}</TapButton>))}</div>
+            <input style={S.input} type="number" placeholder="Pips (+ profit / − loss)" value={tradeForm.pips} onChange={e=>setTradeForm(p=>({...p,pips:e.target.value}))}/>
+            <input style={S.input} placeholder="Duration (e.g. 2h 30m)" value={tradeForm.duration} onChange={e=>setTradeForm(p=>({...p,duration:e.target.value}))}/>
+            <input style={S.input} placeholder="Notes (optional)" value={tradeForm.note} onChange={e=>setTradeForm(p=>({...p,note:e.target.value}))}/>
+            <TapButton onClick={addTrade} style={S.btn(C.warn)}>Log Trade</TapButton>
+          </div>
+          {trades.length>0&&(<div style={S.card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1}}>Trade History</div>
+              <TapButton onClick={exportJournal} style={{background:C.accentBg,border:`1px solid ${C.accent}44`,borderRadius:8,color:C.accent,padding:"4px 10px",fontSize:10,fontWeight:700}}>📋 Export</TapButton>
+            </div>
+            {exportText&&(<textarea readOnly value={exportText} style={{...S.input,fontSize:9,height:75,marginBottom:9,fontFamily:"monospace",resize:"none"}}/>)}
+            {trades.map(t=>{
+              const grade=gradeTrade(t,calcResult);
+              return (<TapButton key={t.id} onClick={()=>setTradeDetail(t)} style={{...S.tradeItem,cursor:"pointer"}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontWeight:700,fontSize:12}}>{t.pair} · {t.type}</span>
+                    {grade&&<span style={{fontSize:10,fontWeight:800,color:gradeColor(grade),background:gradeColor(grade)+"18",padding:"1px 5px",borderRadius:6}}>{grade}</span>}
+                  </div>
+                  <div style={{fontSize:10,color:C.muted}}>{t.date}{t.duration?` · ⏱ ${t.duration}`:""}</div>
+                </div>
+                <div style={{fontWeight:800,fontSize:15,color:parseFloat(t.pips)>0?C.accent:C.danger}}>{parseFloat(t.pips)>0?"+":""}{t.pips}</div>
+              </TapButton>);
+            })}
+          </div>)}
+        </>)}
+
+        {/* ── GUIDE ── */}
+        {activeTab==="guide"&&(<>
+          <div style={S.card}>
+            <div style={S.cardTitle}>Getting Started</div>
+            <div style={{marginBottom:11}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:12,color:C.muted}}>Progress</span><span style={{fontWeight:700,fontSize:12,color:C.accent}}>{checklistCount}/{ONBOARDING_STEPS.length}</span></div><div style={{background:darkMode?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.08)",borderRadius:999,height:7,overflow:"hidden"}}><div style={{width:`${(checklistCount/ONBOARDING_STEPS.length)*100}%`,height:"100%",background:`linear-gradient(90deg,${C.accent},${C.accent}88)`,borderRadius:999,transition:"width 0.5s"}}/></div></div>
+            {ONBOARDING_STEPS.map(step=>(<div key={step.id} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 0",borderBottom:`1px solid ${C.border}`}}><div style={{width:20,height:20,borderRadius:"50%",background:checklist[step.id]?C.accent:C.border,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:11,fontWeight:800,color:checklist[step.id]?"#0A0E1A":"transparent"}}>{checklist[step.id]?"✓":""}</div><div style={{fontSize:12,color:checklist[step.id]?C.text:C.dim,textDecoration:checklist[step.id]?"line-through":"none"}}>{step.label}</div></div>))}
+            {onboardingComplete&&(<div style={{marginTop:13,background:C.accentBg,border:`1.5px solid ${C.accent}44`,borderRadius:11,padding:13,textAlign:"center"}}><div style={{fontSize:22,marginBottom:3}}>🎉</div><div style={{fontWeight:700,color:C.accent}}>All set! Happy trading.</div></div>)}
+          </div>
+          <div style={S.card}>
+            <div style={S.cardTitle}>📖 Feature Reference</div>
+            {[["📊 Dashboard","Daily summary, streak tracker, equity curve, goal progress, session performance breakdown, best/worst trades."],["🕯 Charts","Candlestick + MACD with buy/sell signals, TP/SL/Entry lines, multi-timeframe MACD panel, confluence score, search, swipe to scroll candles, watchlist nav."],["🕐 Sessions","Session live/closed status, countdowns, open alerts, London–NY overlap banner."],["📈 Prices","Build watchlist across Forex, Metals, Crypto, Indexes."],["🎯 Planner","Full trade plan with TP, SL, pips, lot size, R:R. Tap 'View on Chart' to see levels. Data saved automatically."],["⚡ Pip Calc","Quick pip distance calculator — tap the header button."],["🔔 Alerts","Price-level alerts + MACD crossover alerts per watchlisted pair."],["📝 Journal","Economic calendar, trade logging, trade grading (A/B/C), tap any trade for detail sheet, export to clipboard."],["🔐 PIN","4-digit PIN lock. Tap 'Forgot PIN' to reset."],["💾 Auto-save","All data persists automatically between sessions via localStorage."]].map(([title,desc])=>(<div key={title} style={{padding:"9px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:12,marginBottom:2}}>{title}</div><div style={{fontSize:11,color:C.muted}}>{desc}</div></div>))}
+          </div>
+          <div style={S.card}>
+            <div style={S.cardTitle}>⚠️ Reset</div>
+            <TapButton onClick={()=>{if(window.confirm("Reset all data?")){["fpro_trades","fpro_plan","fpro_alerts","fpro_triggered","fpro_checklist","fpro_balance","fpro_goal","fpro_watchlist","fpro_pin"].forEach(k=>localStorage.removeItem(k));window.location.reload();}}} style={{...S.btn(C.danger),background:"rgba(255,107,107,0.12)",color:C.danger,border:`1px solid ${C.danger}44`}}>Reset All Data</TapButton>
+          </div>
+        </>)}
+
+      </div>
+
+      {/* Bottom Nav */}
+      <div style={S.bottomNav}>
+        {[["dashboard","📊","Home"],["charts","🕯","Charts"],["sessions","🕐","Sessions"],["prices","📈","Prices"],["planner","🎯","Planner"],["alerts","🔔","Alerts"],["journal","📝","Journal"],["guide","✅","Guide"]].map(([id,icon,label])=>(
+          <TapButton key={id} onClick={()=>setActiveTab(id)} style={S.navBtn(activeTab===id)}>
+            <span style={{fontSize:16}}>{icon}</span>{label}
+          </TapButton>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(ForexPlannerApp));
+    document.getElementById("loading").style.display = "none";
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(()=>{});
+      });
+    }
+  </script>
+</body>
+</html>
