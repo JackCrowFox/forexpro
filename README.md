@@ -1,2 +1,0 @@
-# forexpro
-Forex trading planner
